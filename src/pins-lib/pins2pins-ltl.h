@@ -59,5 +59,16 @@ extern uint32_t GBgetAcceptingSet ();
 
 extern struct poptOption ltl_options[];
 
+/**
+\brief Programmatically set the LTL formula file, so that GBaddLTL will
+       activate even when --ltl was not passed on the command line.
+       Call this before GBaddLTL if you want to trigger it from another layer.
+*/
+extern void GBsetLTLFile(const char *file);
+
+/**
+\brief Return the LTL formula file currently configured (NULL if none).
+*/
+extern const char *GBgetLTLFile(void);
 
 #endif // PINS2PINS_LTL

@@ -78,6 +78,51 @@ typedef enum {
 
 extern ltsmin_expr_t ltl_parse_file(const char *,ltsmin_parse_env_t,lts_type_t);
 
+/* LTL with Epistemic operators (LTLK) */
+typedef enum {
+    LTLK_SVAR  = SVAR,
+    LTLK_EVAR  = EVAR,
+    LTLK_NUM   = INT,
+    LTLK_CHUNK = CHUNK,
+    LTLK_VAR   = VAR,
+    LTLK_TRUE  = PRED_TRUE,
+    LTLK_FALSE = PRED_FALSE,
+    LTLK_MAYBE = PRED_MAYBE,
+    LTLK_LT    = PRED_LT,
+    LTLK_LEQ   = PRED_LEQ,
+    LTLK_GT    = PRED_GT,
+    LTLK_GEQ   = PRED_GEQ,
+    LTLK_NOT   = PRED_NOT,
+    LTLK_EQ    = PRED_EQ,
+    LTLK_NEQ   = PRED_NEQ,
+    LTLK_OR    = PRED_OR,
+    LTLK_AND   = PRED_AND,
+    LTLK_EQUIV = PRED_EQUIV,
+    LTLK_IMPLY = PRED_IMPLY,
+    LTLK_MULT  = PRED_MULT,
+    LTLK_DIV   = PRED_DIV,
+    LTLK_REM   = PRED_REM,
+    LTLK_ADD   = PRED_ADD,
+    LTLK_SUB   = PRED_SUB,
+    LTLK_EN    = PRED_EN,
+
+    LTLK_FUTURE= TOKEN_USER,
+    LTLK_GLOBALLY,
+    LTLK_RELEASE,
+    LTLK_WEAK_UNTIL,
+    LTLK_STRONG_RELEASE,
+    LTLK_NEXT,
+    LTLK_UNTIL,
+    
+    /* Epistemic operators */
+    LTLK_KNOWS,              // K<agent>(phi) - agent knows phi
+    LTLK_COMMON_KNOWS,       // C(phi) - common knowledge
+    LTLK_DISTRIBUTED_KNOWS,  // D(phi) - distributed knowledge
+    LTLK_EVERYONE_KNOWS      // E(phi) - everyone knows
+} LTLK;
+
+extern ltsmin_expr_t ltlk_parse_file(const char *,ltsmin_parse_env_t,lts_type_t);
+
 /* Computation Tree logic */
 
 typedef enum {

@@ -1,0 +1,35 @@
+// Simple DVE model for epistemic model checking
+// Two processes with basic synchronization
+
+process P1
+{
+  state init_1, wait_1, done_1;
+  init init_1;
+  trans
+    init_1 -> wait_1 { guard true; },
+    wait_1 -> done_1 { guard true; },
+    done_1 -> wait_1 { guard true; };
+}
+
+process P2
+{
+  state init_2, wait_2, done_2;
+  init init_2;
+  trans
+    init_2 -> wait_2 { guard true; },
+    wait_2 -> done_2 { guard true; },
+    done_2 -> wait_2 { guard true; };
+}
+
+process Monitor
+{
+  state q0, q1, q2;
+  init q0;
+  accept q1;
+  trans
+    q0 -> q1 { guard true; },
+    q1 -> q2 { guard true; },
+    q2 -> q1 { guard true; };
+}
+
+system async property Monitor;

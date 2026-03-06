@@ -141,6 +141,11 @@ data_format_t check_type_format_pred(const ltsmin_expr_t e, const ltsmin_parse_e
 data_format_t check_type_format_LTL(const ltsmin_expr_t e, const ltsmin_parse_env_t env, const lts_type_t lts_type);
 
 /**
+\brief Check and return the format of an LTLK (epistemic LTL) formula.
+*/
+data_format_t check_type_format_LTLK(const ltsmin_expr_t e, const ltsmin_parse_env_t env, const lts_type_t lts_type);
+
+/**
 \brief Check and return the format of a CTL formula.
 */
 data_format_t check_type_format_CTL(const ltsmin_expr_t e, const ltsmin_parse_env_t env, const lts_type_t lts_type);

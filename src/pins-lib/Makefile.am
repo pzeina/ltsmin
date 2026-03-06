@@ -68,6 +68,7 @@ libpins_la_SOURCES += pins2pins-guards.c pins2pins-guards.h
 libpins_la_SOURCES += pg-types.c pg-types.h
 libpins_la_SOURCES += pins2pins-mucalc.c pins2pins-mucalc.h
 libpins_la_SOURCES += pins2pins-ltl.c pins2pins-ltl.h
+libpins_la_SOURCES += pins2pins-ltlk.c pins2pins-ltlk.h
 libpins_la_SOURCES += property-semantics.c property-semantics.h
 libpins_la_LIBADD   = ../lts-io/liblts-io.la
 libpins_la_LIBADD  += ../ltsmin-lib/libmucalc.la

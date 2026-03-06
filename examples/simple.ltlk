@@ -1,0 +1,3 @@
+% Simple LTL formula for testing LTLK integration
+% Eventually P1 reaches init_1 state
+<> (P1 == "init_1")

@@ -12,6 +12,7 @@
 #include <pins-lib/pins2pins-guards.h>
 #include <pins-lib/pins2pins-check.h>
 #include <pins-lib/pins2pins-ltl.h>
+#include <pins-lib/pins2pins-ltlk.h>
 #include <pins-lib/pins2pins-mucalc.h>
 #include <pins-lib/por/pins2pins-por.h>
 #include <util-lib/treedbs.h>
@@ -1203,6 +1204,9 @@ wrapModel(model_t model)
     /* add LTL crossproduct layer */
     model = GBaddLTL (model);
 
+    /* add LTLK (epistemic logic) layer */
+    model = GBaddLTLK (model);
+
     /* add regrouping */
     model = GBregroup (model);
 
@@ -1319,6 +1323,7 @@ struct poptOption greybox_options[]={
     { NULL, 0 , POPT_ARG_INCLUDE_TABLE, check_options, 0 , NULL, NULL },
     { NULL, 0 , POPT_ARG_INCLUDE_TABLE, pins_util_options, 0 , NULL, NULL },
     { NULL, 0 , POPT_ARG_INCLUDE_TABLE, por_options , 0 , "Partial Order Reduction options", NULL },
+    { NULL, 0 , POPT_ARG_INCLUDE_TABLE, ltlk_options, 0 , "LTLK (Epistemic Logic) options", NULL },
     { NULL, 0 , POPT_ARG_INCLUDE_TABLE, group_options, 0 , "Regrouping options", NULL },
 	POPT_TABLEEND
 };

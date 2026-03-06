@@ -7,6 +7,7 @@ LIBS  = ../pins-lib/libpins.la
 LIBS += ../vset-lib/libvset.la
 LIBS += ../mc-lib/libmc.la
 LIBS += $(top_builddir)/lib/libgnu.la
+LIBS += ../pins-lib/.libs/libbignum_stub.a
 
 PROB_LIB_LIBS = ../prob-lib/libprob.la
 

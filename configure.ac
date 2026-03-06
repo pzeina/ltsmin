@@ -1,4 +1,4 @@
-AC_PREREQ(2.65)
+AC_PREREQ([2.72])
 AC_INIT([ltsmin],[3.1.0],[ltsmin-support@lists.utwente.nl])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([autotools])
@@ -22,7 +22,7 @@ then
 fi
 AC_SUBST(DEJAGNU)
 
-AC_PROG_CC_FOR_BUILD
+AX_PROG_CC_FOR_BUILD
 AM_PROG_CC_C_O
 AC_PROG_CXX
 ACX_FINK
@@ -77,7 +77,10 @@ AS_IF([test "x$enable_dist" != "xno"],[
     AC_LANG_POP([C++])
 ])
 
-AC_PROG_CC_C99
+m4_warn([obsolete],
+[AC_PROG_CC_C99 is obsolete; use AC_PROG_CC
+])dnl
+AC_REQUIRE(AC_PROG_CC)
 gl_EARLY
 AX_CXX_COMPILE_STDCXX_17(, [mandatory])
 AS_IF([test x"$ac_cv_prog_cc_c99" = xno],
@@ -259,7 +262,15 @@ AS_IF([test x"$with_profiler" = xyes],
 
 # Checks for header files.
 AC_HEADER_DIRENT
-AC_HEADER_STDC
+m4_warn([obsolete],
+[The preprocessor macro 'STDC_HEADERS' is obsolete.
+  Except in unusual embedded environments, you can safely include all
+  C89 headers unconditionally.])dnl
+# Autoupdate added the next two lines to ensure that your configure
+# script's behavior did not change.  They are probably safe to remove.
+AC_CHECK_INCLUDES_DEFAULT
+AC_PROG_EGREP
+
 AC_CHECK_HEADERS([fcntl.h limits.h stdint.h stdlib.h string.h strings.h dnl
   unistd.h execinfo.h])
 AS_IF([test x"$have_libgmp" = xyes], 

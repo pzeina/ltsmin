@@ -1,5 +1,7 @@
 #include <hre/config.h>
 
+#include <stdio.h>
+
 #include <hre/stringindex.h>
 #include <hre/user.h>
 #include <ltsmin-lib/ltsmin-grammar.h>
@@ -57,6 +59,25 @@ LTL_NAME(LTL ltl)
     case LTL_NEXT:              return "X";
     case LTL_UNTIL:             return "U";
     default:                    return PRED_NAME((Pred)ltl);
+    }
+}
+
+const char *
+LTLK_NAME(LTLK ltlk)
+{
+    switch (ltlk) {
+    case LTLK_FUTURE:            return "<>";
+    case LTLK_GLOBALLY:          return "[]";
+    case LTLK_RELEASE:           return "R";
+    case LTLK_WEAK_UNTIL:        return "W";
+    case LTLK_STRONG_RELEASE:    Abort ("Strong release isn't implemented!");
+    case LTLK_NEXT:              return "X";
+    case LTLK_UNTIL:             return "U";
+    case LTLK_KNOWS:             return "K";
+    case LTLK_COMMON_KNOWS:      return "C";
+    case LTLK_DISTRIBUTED_KNOWS: return "D";
+    case LTLK_EVERYONE_KNOWS:    return "E";
+    default:                     return PRED_NAME((Pred)ltlk);
     }
 }
 
@@ -291,6 +312,120 @@ ltl_parse_file(const char *file, ltsmin_parse_env_t env, lts_type_t ltstype)
     get_data_format_unary(UNARY_BOOL_OPS, env->expr, env, df);
 
     env->expr = ltl_tree_walker(env->expr);
+
+    return env->expr;
+}
+
+static void
+create_ltlk_env(ltsmin_parse_env_t env)
+{
+    LTSminConstant      (env, LTLK_FALSE,        LTLK_NAME(LTLK_FALSE));
+    LTSminConstant      (env, LTLK_TRUE,         LTLK_NAME(LTLK_TRUE));
+    LTSminConstant      (env, LTLK_MAYBE,        LTLK_NAME(LTLK_MAYBE));
+
+    LTSminBinaryOperator(env, LTLK_MULT,         LTLK_NAME(LTLK_MULT), 1);
+    LTSminBinaryOperator(env, LTLK_DIV,          LTLK_NAME(LTLK_DIV), 1);
+    LTSminBinaryOperator(env, LTLK_REM,          LTLK_NAME(LTLK_REM), 1);
+    LTSminBinaryOperator(env, LTLK_ADD,          LTLK_NAME(LTLK_ADD), 2);
+    LTSminBinaryOperator(env, LTLK_SUB,          LTLK_NAME(LTLK_SUB), 2);
+
+    LTSminBinaryOperator(env, LTLK_LT,           LTLK_NAME(LTLK_LT), 3);
+    LTSminBinaryOperator(env, LTLK_LEQ,          LTLK_NAME(LTLK_LEQ), 3);
+    LTSminBinaryOperator(env, LTLK_GT,           LTLK_NAME(LTLK_GT), 3);
+    LTSminBinaryOperator(env, LTLK_GEQ,          LTLK_NAME(LTLK_GEQ), 3);
+
+    LTSminBinaryOperator(env, LTLK_EQ,           LTLK_NAME(LTLK_EQ), 4);
+    LTSminBinaryOperator(env, LTLK_NEQ,          LTLK_NAME(LTLK_NEQ), 4);
+    LTSminBinaryOperator(env, LTLK_EN ,          LTLK_NAME(LTLK_EN), 4);
+
+    LTSminPrefixOperator(env, LTLK_NOT,          LTLK_NAME(LTLK_NOT), 5);
+
+    LTSminPrefixOperator(env, LTLK_GLOBALLY,     LTLK_NAME(LTLK_GLOBALLY), 6);
+    LTSminPrefixOperator(env, LTLK_FUTURE,       LTLK_NAME(LTLK_FUTURE), 6);
+    LTSminPrefixOperator(env, LTLK_NEXT,         LTLK_NAME(LTLK_NEXT), 6);
+    
+    /* Epistemic operators.
+     * K is a generic alias for K0 (single-agent / backward compat).
+     * K0..K9 are indexed per-agent; the string table index of K0 is used
+     * as a base: agent = unary_ops_idx - base_of_K0.  C, D, E are group ops.
+     */
+    {
+        char kname[8];
+        for (int _ki = 0; _ki <= 9; _ki++) {
+            snprintf(kname, sizeof(kname), "K%d", _ki);
+            LTSminPrefixOperator(env, LTLK_KNOWS, kname, 6);
+        }
+    }
+    LTSminPrefixOperator(env, LTLK_KNOWS,             "K", 6); /* alias = K0 */
+    LTSminPrefixOperator(env, LTLK_COMMON_KNOWS,      LTLK_NAME(LTLK_COMMON_KNOWS), 6);
+    LTSminPrefixOperator(env, LTLK_DISTRIBUTED_KNOWS, LTLK_NAME(LTLK_DISTRIBUTED_KNOWS), 6);
+    LTSminPrefixOperator(env, LTLK_EVERYONE_KNOWS,    LTLK_NAME(LTLK_EVERYONE_KNOWS), 6);
+
+    LTSminBinaryOperator(env, LTLK_AND,          LTLK_NAME(LTLK_AND), 7);
+    LTSminBinaryOperator(env, LTLK_OR,           LTLK_NAME(LTLK_OR), 8);
+
+    LTSminBinaryOperator(env, LTLK_EQUIV,        LTLK_NAME(LTLK_EQUIV), 9);
+    LTSminBinaryOperator(env, LTLK_IMPLY,        LTLK_NAME(LTLK_IMPLY), 10);
+
+    LTSminBinaryOperator(env, LTLK_UNTIL,        LTLK_NAME(LTLK_UNTIL), 11);
+    LTSminBinaryOperator(env, LTLK_WEAK_UNTIL,   LTLK_NAME(LTLK_WEAK_UNTIL), 11);
+    LTSminBinaryOperator(env, LTLK_RELEASE,      LTLK_NAME(LTLK_RELEASE), 11);
+}
+
+/* Convert weak untils to until or globally for LTLK */
+static ltsmin_expr_t
+ltlk_tree_walker(ltsmin_expr_t in)
+{
+    ltsmin_expr_t arg1, arg2, u, g;
+    // handle sub-expressions
+    switch (in->node_type) {
+        case UNARY_OP:
+            arg1 = ltlk_tree_walker(in->arg1);
+            in->arg1 = arg1;
+            LTSminExprRehash(in);
+            break;
+        case BINARY_OP:
+            arg1 = ltlk_tree_walker(in->arg1);
+            arg2 = ltlk_tree_walker(in->arg2);
+            switch (in->token) {
+                case LTLK_WEAK_UNTIL:
+                    u = LTSminExpr(BINARY_OP, LTLK_UNTIL, 0, arg1, arg2);
+                    g = LTSminExpr(UNARY_OP, LTLK_GLOBALLY, 0, arg1, NULL);
+                    RTfree (in);
+                    in = LTSminExpr(BINARY_OP, LTLK_OR, 0, u, g);
+                    break;
+                default:
+                    in->arg1 = arg1;
+                    in->arg2 = arg2;
+                    LTSminExprRehash(in);
+                    break;
+            }
+            break;
+        default:
+            break;
+    }
+    return in;
+}
+
+/* Parser for LTLK (LTL with epistemic operators)
+ * Priorities same as LTL, with epistemic operators at priority 6
+ */
+ltsmin_expr_t
+ltlk_parse_file(const char *file, ltsmin_parse_env_t env, lts_type_t ltstype)
+{
+    stream_t stream = read_formula (file);
+
+    fill_env(env, ltstype);
+    
+    create_ltlk_env(env);
+    
+    ltsmin_parse_stream(TOKEN_EXPR, env, stream);
+
+    data_format_t df = check_type_format_LTLK(env->expr, env, ltstype);
+
+    get_data_format_unary(UNARY_BOOL_OPS, env->expr, env, df);
+
+    env->expr = ltlk_tree_walker(env->expr);
 
     return env->expr;
 }

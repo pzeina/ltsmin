@@ -57,6 +57,18 @@ GBgetAcceptingSet ()
     return HOA_ACCEPTING_SET;
 }
 
+void
+GBsetLTLFile(const char *file)
+{
+    ltl_file = (char *)file;
+}
+
+const char *
+GBgetLTLFile(void)
+{
+    return ltl_file;
+}
+
 static void
 ltl_popt (poptContext con, enum poptCallbackReason reason,
           const struct poptOption *opt, const char *arg, void *data)
