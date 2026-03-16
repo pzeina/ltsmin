@@ -37,7 +37,8 @@ S_NAME(ltsmin_expr_case s)
     case S_ADD:              return "+";
     case S_SUB:              return "-";
     case S_EN:               return "??";
-    default:        Abort ("Not a keyword/operator, token id: %d", s);
+    case LTLK_KNOWS:         return "K";
+    default:        return "<?>";
     }
 }
 

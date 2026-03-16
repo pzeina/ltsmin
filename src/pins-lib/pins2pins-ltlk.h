@@ -5,16 +5,18 @@
 #include <ltsmin-lib/ltsmin-tl.h>
 
 /**
-\brief The behaviour of the LTLK (epistemic LTL) product
+\brief LTLK (LTL with knowledge) product layer.
 
-LTLK extends LTL with epistemic operators for multi-agent systems.
-The semantics are based on synchronous perfect recall with 
-observational equivalence.
+This layer builds an on-the-fly product of:
+ - model state,
+ - Buchi state,
+ - per-agent knowledge monitor state (belief set id).
+
+Semantics implemented here: synchronous perfect recall.
+Knowledge operator supported in formulas: K_i phi.
 */
 typedef enum {
-    PINS_LTLK_SYNC_PERFECT_RECALL,  // Synchronous with perfect recall
-    PINS_LTLK_ASYNC_PERFECT_RECALL, // Asynchronous with perfect recall
-    PINS_LTLK_SYNC_NO_RECALL,       // Synchronous without memory
+    PINS_LTLK_SYNC_PERFECT_RECALL,
 } pins_ltlk_type_t;
 
 /**
@@ -28,21 +30,20 @@ extern pins_ltlk_type_t PINS_LTLK;
 extern int LTLK_NUM_AGENTS;
 
 /**
- * \brief observability configuration for agents
- * Array where each element i contains a bitvector indicating
- * which state variables agent i can observe
+ * \brief observability configuration for agents.
+ *
+ * Each bitvector marks which model variables are observable by the agent.
  */
 typedef struct {
     int num_agents;
-    bitvector_t *observable_vars;  // Per-agent observable state variables
+    bitvector_t *observable_vars;
 } ltlk_obs_config_t;
 
 /**
 \brief Add LTLK layer on top of all other pins layers
 
-This layer creates a product of the model with the knowledge automaton
-derived from the LTLK formula, using observational equivalence for
-epistemic operators.
+The resulting product can be explored with the standard on-the-fly
+Buchi cycle detection algorithms.
 */
 extern model_t GBaddLTLK(model_t model);
 
@@ -50,8 +51,8 @@ extern model_t GBaddLTLK(model_t model);
 \brief Set the observability configuration for agents
 
 This must be called before GBaddLTLK if you want to specify
-which state variables each agent can observe. If not called,
-all agents can observe all state variables by default.
+which state variables each agent can observe. If not called, all
+agents observe all model variables by default.
 
 \param config Observability configuration structure
 */

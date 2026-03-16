@@ -35,6 +35,7 @@ check_PROGRAMS += test-dm$(EXEEXT)
 check_PROGRAMS += test-hre$(EXEEXT)
 check_PROGRAMS += test-is-balloc$(EXEEXT)
 check_PROGRAMS += test-ltsmin-parse$(EXEEXT)
+check_PROGRAMS += test-ltlk-parser$(EXEEXT)
 check_PROGRAMS += test-mucalc-parser$(EXEEXT)
 check_PROGRAMS += test-regroup$(EXEEXT)
 check_PROGRAMS += test-simplemap$(EXEEXT)
@@ -53,6 +54,7 @@ EXTRA_DIST = wine-wrapper.sh.in
 
 # disables because it requires a flag
 #TESTS += test-ltsmin-parse$(EXEEXT)
+TESTS += test-ltlk-parser$(EXEEXT)
 
 # disabled because it requires a read from stdin
 #TESTS += test-regroup$(EXEEXT)
@@ -110,6 +112,16 @@ test_ltsmin_parse_LDADD                += $(HRE_LIB) $(AM_LDFLAGS)
 test_ltsmin_parse_LDADD                += $(top_builddir)/ltl2ba/libltl2ba.la
 test_ltsmin_parse_LDADD                += $(top_builddir)/lib/libgnu.la
 nodist_EXTRA_test_ltsmin_parse_SOURCES  = automake-force-linker.cxx # required by Boost & ViennaCL
+
+# test-ltlk-parser
+test_ltlk_parser_SOURCES               = test-ltlk-parser.c
+test_ltlk_parser_CPPFLAGS              = -DNXT -I${top_srcdir}/ltl2ba
+test_ltlk_parser_CPPFLAGS             += $(AM_CPPFLAGS)
+test_ltlk_parser_LDADD                 = $(PINS_LIBS) $(DM_LIBS)
+test_ltlk_parser_LDADD                += $(HRE_LIB) $(AM_LDFLAGS)
+test_ltlk_parser_LDADD                += $(top_builddir)/ltl2ba/libltl2ba.la
+test_ltlk_parser_LDADD                += $(top_builddir)/lib/libgnu.la
+nodist_EXTRA_test_ltlk_parser_SOURCES  = automake-force-linker.cxx # required by Boost & ViennaCL
 
 # test-mucalc-parser
 test_mucalc_parser_SOURCES      = test-mucalc-parser.c

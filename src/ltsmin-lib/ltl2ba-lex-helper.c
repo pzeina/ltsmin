@@ -66,6 +66,16 @@ linearize_ltsmin_expr(ltsmin_expr_t e, ltsmin_lin_expr_t **le)
             add_lin_expr(e, le);
             return;
         }
+        case LTLK_KNOWS: {
+            /*
+             * LTLK knowledge operators are handled by the product layer.
+             * For Buchi translation, K_i(phi) must behave as one atomic
+             * predicate over the extended product state, so we linearize the
+             * whole subformula as a single token and do not descend into phi.
+             */
+            add_lin_expr(e, le);
+            return;
+        }
     }
 
     // add left part of binary op first

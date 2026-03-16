@@ -79,6 +79,7 @@ ltsmin_expr_print_ltl(ltsmin_expr_t ltl,char* buf)
         case LTL_EVAR: sprintf(buf, "@E%d", ltl->idx); break;
         case LTL_NUM: sprintf(buf, "%d", ltl->idx); break;
         case LTL_CHUNK: sprintf(buf, "@H%d", ltl->idx); break;
+        case LTLK_KNOWS: sprintf(buf, "@K%08x", ltl->hash); break;
         case LTL_LT: sprintf(buf, " < "); break;
         case LTL_LEQ: sprintf(buf, " <= "); break;
         case LTL_GT: sprintf(buf, " > "); break;
@@ -109,6 +110,8 @@ ltsmin_expr_print_ltl(ltsmin_expr_t ltl,char* buf)
     // right eq
     switch(ltl->node_type) {
         case UNARY_OP:
+            if (ltl->token == LTLK_KNOWS)
+                break;
             buf = ltsmin_expr_print_ltl(ltl->arg1, buf);
             break;
         case BINARY_OP:
@@ -172,6 +175,7 @@ tl_lex(void)
         case LTL_SVAR:
         case LTL_EN:
         case LTL_VAR:
+        case LTLK_KNOWS:
         case LTL_NEQ:
         case LTL_LT:
         case LTL_LEQ:

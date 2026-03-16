@@ -10,11 +10,12 @@
 #include <pins-lib/property-semantics.h>
 #include <pins-lib/pins.h>
 
-typedef enum {PARSE_LTL, PARSE_CTL, PARSE_CTL_S, PARSE_MU} parse_mode_t;
+typedef enum {PARSE_LTL, PARSE_LTLK, PARSE_CTL, PARSE_CTL_S, PARSE_MU} parse_mode_t;
 static parse_mode_t parse_mode=PARSE_MU;
 
 static  struct poptOption options[] = {
     {"ltl", 0, POPT_ARG_VAL, &parse_mode, PARSE_LTL, "parse and verify an ltl formula", NULL },
+    {"ltlk", 0, POPT_ARG_VAL, &parse_mode, PARSE_LTLK, "parse and verify an ltlk formula", NULL },
     {"ctl", 0, POPT_ARG_VAL, &parse_mode, PARSE_CTL, "parse and verify a ctl formula", NULL },
     {"ctl-star", 0, POPT_ARG_VAL, &parse_mode, PARSE_CTL_S, "parse and verify a ctl* formula", NULL },
     {"mu", 0, POPT_ARG_VAL, &parse_mode, PARSE_MU, "parse and verify mu calculus", NULL },
@@ -54,6 +55,10 @@ int main(int argc, char *argv[]){
             ltsmin_expr_t mu = ctl_star_to_mu(ctl);
             print_expr(mu);
             */
+            } break;
+        case PARSE_LTLK: {
+            ltsmin_parse_env_t env = LTSminParseEnvCreate();
+            ltlk_parse_file(file_name, env, ltstype);
             } break;
         case PARSE_CTL: {
             ltsmin_parse_env_t env = LTSminParseEnvCreate();
