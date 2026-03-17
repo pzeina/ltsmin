@@ -34,9 +34,11 @@ typedef struct knowledge_belief_tbl {
 struct knowledge_mgr {
     model_t                 parent;
      int                     model_len;     /* original model state length          */
+     int                     edge_label_count;
      int                     state_length;  /* enriched = model_len + num_k_atoms   */
     int                     num_agents;
     const bitvector_t      *observable_vars;
+    const bitvector_t      *observable_labels;
     knowledge_state_tbl_t   states;
     knowledge_belief_tbl_t  beliefs;
      /* companion Büchi automata for K_i(phi_j) predicates ------------------- */
@@ -138,12 +140,21 @@ belief_hash_rebuild(knowledge_mgr_t *km)
 
 static bool
 same_observation(const knowledge_mgr_t *km, int agent,
-                 const int *lhs, const int *rhs)
+                 const int *lhs, const int *rhs,
+                 const int *lhs_labels, const int *rhs_labels)
 {
     const bitvector_t *obs = &km->observable_vars[agent];
      /* Only compare the MODEL portion; BA-state slots are never observable. */
      for (int i = 0; i < km->model_len; i++) {
         if (bitvector_is_set(obs, i) && lhs[i] != rhs[i]) return false;
+    }
+
+    if (lhs_labels != NULL && rhs_labels != NULL && km->edge_label_count > 0) {
+        const bitvector_t *obs_lbl = &km->observable_labels[agent];
+        for (int i = 0; i < km->edge_label_count; i++) {
+            if (bitvector_is_set(obs_lbl, i) && lhs_labels[i] != rhs_labels[i])
+                return false;
+        }
     }
     return true;
 }
@@ -258,19 +269,23 @@ intern_belief(knowledge_mgr_t *km, const size_t *words, size_t word_count)
 }
 
 knowledge_mgr_t *
- knowledge_create(model_t parent_model, int model_len, int num_agents,
+ knowledge_create(model_t parent_model, int model_len, int edge_label_count,
+                  int num_agents,
                   const bitvector_t *observable_vars,
+                  const bitvector_t *observable_labels,
                   int num_k_atoms, const k_atom_companion_t *k_atoms)
 {
     knowledge_mgr_t *km = RTmallocZero(sizeof(*km));
     km->parent = parent_model;
      km->model_len    = model_len;
+     km->edge_label_count = edge_label_count;
      km->num_k_atoms  = num_k_atoms;
      km->k_atoms      = k_atoms;
      /* Enriched state length = model part + one int per K-atom for BA state */
      km->state_length = model_len + num_k_atoms;
     km->num_agents = num_agents;
     km->observable_vars = observable_vars;
+    km->observable_labels = observable_labels;
 
     km->states.capacity = 1024;
      km->states.flat = RTmalloc(sizeof(int) * (size_t)km->states.capacity * km->state_length);
@@ -342,10 +357,120 @@ knowledge_make_singleton(knowledge_mgr_t *km, int state_id)
      return knowledge_register_state(km, enriched);
  }
 
+typedef struct init_belief_ctx {
+    knowledge_mgr_t *km;
+    const int       *model_state;
+    size_t          *tmp_words;
+    size_t           tmp_count;
+} init_belief_ctx_t;
+
+static void
+initial_belief_add_state(init_belief_ctx_t *ctx, const int *enriched)
+{
+    int sid = knowledge_register_state(ctx->km, enriched);
+    size_t word = (size_t)sid / (8 * sizeof(size_t));
+    if (word >= ctx->tmp_count) {
+        size_t old = ctx->tmp_count;
+        size_t new_count = ctx->tmp_count;
+        while (word >= new_count) new_count = new_count * 2 + 1;
+        ctx->tmp_words = RTrealloc(ctx->tmp_words, sizeof(size_t) * new_count);
+        memset(ctx->tmp_words + old, 0, sizeof(size_t) * (new_count - old));
+        ctx->tmp_count = new_count;
+    }
+    belief_bit_set(ctx->tmp_words, sid);
+}
+
+static void
+expand_initial_ba_states(init_belief_ctx_t *ctx, int *enriched, int k_idx)
+{
+    knowledge_mgr_t *km = ctx->km;
+
+    if (k_idx >= km->num_k_atoms) {
+        initial_belief_add_state(ctx, enriched);
+        return;
+    }
+
+    const k_atom_companion_t *atom = &km->k_atoms[k_idx];
+
+    if (atom->ba == NULL) {
+        enriched[km->model_len + k_idx] = 0;
+        expand_initial_ba_states(ctx, enriched, k_idx + 1);
+        return;
+    }
+
+    int q0 = 0;
+    if (q0 < 0 || q0 >= atom->ba->state_count) {
+        enriched[km->model_len + k_idx] = atom->ba->state_count;
+        expand_initial_ba_states(ctx, enriched, k_idx + 1);
+        enriched[km->model_len + k_idx] = 0;
+        return;
+    }
+
+    int pred_bits = 0;
+    for (int p = 0; p < atom->ba->predicate_count; p++) {
+        if (eval_state_predicate(km->parent, atom->ba->predicates[p],
+                                 (int *)ctx->model_state, atom->env))
+            pred_bits |= (1 << p);
+    }
+
+    ltsmin_buchi_state_t *bs = atom->ba->states[q0];
+    bool any = false;
+    for (int t = 0; t < bs->transition_count; t++) {
+        ltsmin_buchi_transition_t *tr = &bs->transitions[t];
+        if ((pred_bits & tr->pos[0]) != tr->pos[0]) continue;
+        if ((pred_bits & tr->neg[0]) != 0)           continue;
+        any = true;
+
+        int saved_q = enriched[km->model_len + k_idx];
+        enriched[km->model_len + k_idx] = tr->to_state;
+        if (bs->transition_count == 1) {
+            expand_initial_ba_states(ctx, enriched, k_idx + 1);
+        } else {
+            int copy[km->state_length];
+            memcpy(copy, enriched, sizeof(int) * km->state_length);
+            expand_initial_ba_states(ctx, copy, k_idx + 1);
+        }
+        enriched[km->model_len + k_idx] = saved_q;
+    }
+
+    if (!any) {
+        enriched[km->model_len + k_idx] = atom->ba->state_count;
+        expand_initial_ba_states(ctx, enriched, k_idx + 1);
+        enriched[km->model_len + k_idx] = 0;
+    }
+}
+
+int
+knowledge_make_initial_belief(knowledge_mgr_t *km, const int *model_state)
+{
+    if (km->num_k_atoms == 0) {
+        int sid = knowledge_register_state(km, model_state);
+        return knowledge_make_singleton(km, sid);
+    }
+
+    int enriched[km->state_length];
+    memcpy(enriched, model_state, sizeof(int) * km->model_len);
+    memset(enriched + km->model_len, 0, sizeof(int) * km->num_k_atoms);
+
+    init_belief_ctx_t ctx = {
+        .km = km,
+        .model_state = model_state,
+        .tmp_words = RTmallocZero(sizeof(size_t)),
+        .tmp_count = 1,
+    };
+
+    expand_initial_ba_states(&ctx, enriched, 0);
+
+    int bid = intern_belief(km, ctx.tmp_words, ctx.tmp_count);
+    RTfree(ctx.tmp_words);
+    return bid;
+}
+
  typedef struct update_cb_ctx {
     knowledge_mgr_t *km;
     int              agent;
     const int       *observed;
+    const int       *observed_labels;
      const int       *src_enriched;  /* full enriched source state (model+BA) */
     size_t          *tmp_words;
     size_t           tmp_count;
@@ -465,7 +590,10 @@ knowledge_update_cb(void *context, transition_info_t *ti, int *dst, int *cpy)
     (void)ti; (void)cpy;
     update_cb_ctx_t *ctx = (update_cb_ctx_t *)context;
 
-    if (!same_observation(ctx->km, ctx->agent, dst, ctx->observed))
+    const int *candidate_labels = (ti != NULL) ? ti->labels : NULL;
+
+    if (!same_observation(ctx->km, ctx->agent, dst, ctx->observed,
+                          candidate_labels, ctx->observed_labels))
         return;
 
      if (ctx->km->num_k_atoms == 0) {
@@ -484,7 +612,8 @@ knowledge_update_cb(void *context, transition_info_t *ti, int *dst, int *cpy)
 
 int
 knowledge_update_belief(knowledge_mgr_t *km, int agent, int belief_id,
-                        const int *observed_successor_state)
+                        const int *observed_successor_state,
+                        const int *observed_edge_labels)
 {
     if (agent < 0 || agent >= km->num_agents)
         Abort("knowledge_update_belief: invalid agent %d", agent);
@@ -508,6 +637,7 @@ knowledge_update_belief(knowledge_mgr_t *km, int agent, int belief_id,
                 .km = km,
                 .agent = agent,
                 .observed = observed_successor_state,
+                .observed_labels = observed_edge_labels,
                  .src_enriched = src,
                 .tmp_words = tmp_words,
                 .tmp_count = tmp_count,

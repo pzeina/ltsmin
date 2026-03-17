@@ -1,0 +1,22 @@
+# name|model|formula|expected_exit|expected_pattern
+
+s_k_wait|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_k_wait.ltlk|1|Accepting cycle FOUND!
+s_k_init|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_k_init.ltlk|0|Empty product with LTL!
+s_k_eventually_done|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_k_eventually_done.ltlk|1|Accepting cycle FOUND!
+s_k_always_wait|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_k_always_wait.ltlk|1|Accepting cycle FOUND!
+s_nested_k|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_nested_k.ltlk|1|Accepting cycle FOUND!
+s_nested_k_temporal|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_nested_k_temporal.ltlk|1|Accepting cycle FOUND!
+s_obs_subset_basic|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_obs_subset_basic.ltlk|1|Accepting cycle FOUND!
+s_obs_subset_nested|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_obs_subset_nested.ltlk|1|Accepting cycle FOUND!
+
+a_k_ncs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/a_k_ncs.ltlk|0|Empty product with LTL!
+a_k_eventually_cs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/a_k_eventually_cs.ltlk|1|Accepting cycle FOUND!
+a_nested_k_cs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/a_nested_k_cs.ltlk|1|Accepting cycle FOUND!
+a_obs_subset_cs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/a_obs_subset_cs.ltlk|1|Accepting cycle FOUND!
+
+n_unsupported_e|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/n_unsupported_e.ltlk|255|supports only K_i\(phi\)
+n_unsupported_c|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/n_unsupported_c.ltlk|255|supports only K_i\(phi\)
+n_unsupported_d|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/n_unsupported_d.ltlk|255|supports only K_i\(phi\)
+n_obs_unknown_var|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/n_obs_unknown_var.ltlk|255|unknown state variable
+n_obs_bad_agent|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/n_obs_bad_agent.ltlk|255|out of range for agents
+n_obs_bad_clause|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/n_obs_bad_clause.ltlk|255|expected vars\(\.\.\.\) or labels\(\.\.\.\)

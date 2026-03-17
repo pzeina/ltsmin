@@ -37,6 +37,7 @@ extern int LTLK_NUM_AGENTS;
 typedef struct {
     int num_agents;
     bitvector_t *observable_vars;
+    bitvector_t *observable_labels;
 } ltlk_obs_config_t;
 
 /**

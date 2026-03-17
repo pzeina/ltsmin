@@ -76,9 +76,12 @@ typedef struct k_atom_companion {
  *
  * @param parent_model    base PINS model (for GBgetTransitionsAll)
  * @param model_len       state-vector length of parent_model
+ * @param edge_label_count number of edge labels in parent_model
  * @param num_agents      number of agents
  * @param observable_vars per-agent observable-variable bitvectors
  *                        (length = num_agents, indexed over model state vars)
+ * @param observable_labels per-agent observable-edge-label bitvectors
+ *                        (length = num_agents, indexed over edge labels)
  * @param num_k_atoms     number of K_i(phi_j) atoms in the formula
  *                        (= outer Büchi predicate count; use 0 for the old
  *                         behaviour where all predicates are propositional)
@@ -88,10 +91,12 @@ typedef struct k_atom_companion {
  *                        May be NULL when num_k_atoms == 0.
  */
 knowledge_mgr_t *knowledge_create(model_t parent_model, int model_len,
-                                                                    int num_agents,
-                                                                    const bitvector_t *observable_vars,
-                                                                    int num_k_atoms,
-                                                                    const k_atom_companion_t *k_atoms);
+                                  int edge_label_count,
+                                  int num_agents,
+                                  const bitvector_t *observable_vars,
+                                  const bitvector_t *observable_labels,
+                                  int num_k_atoms,
+                                  const k_atom_companion_t *k_atoms);
 
 void knowledge_destroy(knowledge_mgr_t *km);
 
@@ -105,6 +110,9 @@ int knowledge_num_agents(const knowledge_mgr_t *km);
 int knowledge_register_initial_state(knowledge_mgr_t *km,
                                                                          const int *model_state);
 
+int knowledge_make_initial_belief(knowledge_mgr_t *km,
+                                  const int *model_state);
+
 int knowledge_register_state(knowledge_mgr_t *km, const int *state);
 
 const int *knowledge_get_state(const knowledge_mgr_t *km, int state_id);
@@ -112,7 +120,8 @@ const int *knowledge_get_state(const knowledge_mgr_t *km, int state_id);
 int knowledge_make_singleton(knowledge_mgr_t *km, int state_id);
 
 int knowledge_update_belief(knowledge_mgr_t *km, int agent, int belief_id,
-                            const int *observed_successor_state);
+                            const int *observed_successor_state,
+                            const int *observed_edge_labels);
 
 knowledge_state_t knowledge_get_belief(const knowledge_mgr_t *km, int belief_id);
 

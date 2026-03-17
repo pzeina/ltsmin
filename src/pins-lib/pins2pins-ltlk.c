@@ -1,7 +1,9 @@
 #include <hre/config.h>
 
+#include <ctype.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -57,6 +59,7 @@ typedef struct ltlk_context {
 
     int                 num_agents;
     bitvector_t        *observable_vars;
+    bitvector_t        *observable_labels;
     int                 know_idx;
     int                 k_base_idx;
 
@@ -125,6 +128,297 @@ ltlk_obs_config_t *
 GBgetLTLKObservability(void)
 {
     return ltlk_obs;
+}
+
+static char *
+trim_ws(char *s)
+{
+    while (*s != '\0' && isspace((unsigned char)*s)) s++;
+    if (*s == '\0') return s;
+    char *end = s + strlen(s) - 1;
+    while (end >= s && isspace((unsigned char)*end)) {
+        *end = '\0';
+        end--;
+    }
+    return s;
+}
+
+static bool
+starts_with_word(const char *s, const char *word)
+{
+    size_t n = strlen(word);
+    if (strncmp(s, word, n) != 0) return false;
+    char c = s[n];
+    return c == '\0' || isspace((unsigned char)c) || c == ':' || c == '=';
+}
+
+static int
+find_state_var_index(lts_type_t ltstype, const char *name)
+{
+    int n = lts_type_get_state_length(ltstype);
+    for (int i = 0; i < n; i++) {
+        const char *cur = lts_type_get_state_name(ltstype, i);
+        if (cur != NULL && strcmp(cur, name) == 0) return i;
+    }
+    return -1;
+}
+
+static int
+find_edge_label_index(lts_type_t ltstype, const char *name)
+{
+    int n = lts_type_get_edge_label_count(ltstype);
+    for (int i = 0; i < n; i++) {
+        const char *cur = lts_type_get_edge_label_name(ltstype, i);
+        if (cur != NULL && strcmp(cur, name) == 0) return i;
+    }
+    return -1;
+}
+
+static void
+set_all_observable(ltlk_obs_config_t *cfg, int state_len, int edge_labels)
+{
+    for (int a = 0; a < cfg->num_agents; a++) {
+        bitvector_create(&cfg->observable_vars[a], state_len);
+        bitvector_create(&cfg->observable_labels[a], edge_labels);
+        for (int i = 0; i < state_len; i++) bitvector_set(&cfg->observable_vars[a], i);
+        for (int i = 0; i < edge_labels; i++) bitvector_set(&cfg->observable_labels[a], i);
+    }
+}
+
+static void
+clear_agent_observable(ltlk_obs_config_t *cfg, int agent)
+{
+    bitvector_clear(&cfg->observable_vars[agent]);
+    bitvector_clear(&cfg->observable_labels[agent]);
+}
+
+static void
+parse_name_list_into_bits(char *list, lts_type_t ltstype, bitvector_t *dst,
+                          bool vars, int lineno)
+{
+    char *save = NULL;
+    for (char *tok = strtok_r(list, ",", &save); tok != NULL; tok = strtok_r(NULL, ",", &save)) {
+        char *name = trim_ws(tok);
+        if (*name == '\0') continue;
+        if (vars) {
+            int idx = find_state_var_index(ltstype, name);
+            if (idx < 0)
+                Abort("LTLK obs parse error (line %d): unknown state variable '%s'", lineno, name);
+            bitvector_set(dst, idx);
+        } else {
+            int idx = find_edge_label_index(ltstype, name);
+            if (idx < 0)
+                Abort("LTLK obs parse error (line %d): unknown edge label '%s'", lineno, name);
+            bitvector_set(dst, idx);
+        }
+    }
+}
+
+static void
+parse_obs_clauses(char *clauses, lts_type_t ltstype, ltlk_obs_config_t *cfg,
+                  int agent, int lineno)
+{
+    bool saw_any = false;
+    bool touched = false;
+    char *p = clauses;
+
+    while (*p != '\0') {
+        while (*p != '\0' && (isspace((unsigned char)*p) || *p == ',')) p++;
+        if (*p == '\0') break;
+
+        if (strncmp(p, "vars", 4) == 0 && strchr(" (", p[4]) != NULL) {
+            p += 4;
+            while (*p != '\0' && isspace((unsigned char)*p)) p++;
+            if (*p != '(')
+                Abort("LTLK obs parse error (line %d): expected '(' after vars", lineno);
+            p++;
+            char *start = p;
+            char *end = strchr(start, ')');
+            if (end == NULL)
+                Abort("LTLK obs parse error (line %d): missing ')' in vars(...)", lineno);
+            *end = '\0';
+            if (!touched) {
+                clear_agent_observable(cfg, agent);
+                touched = true;
+            }
+            parse_name_list_into_bits(start, ltstype, &cfg->observable_vars[agent], true, lineno);
+            saw_any = true;
+            p = end + 1;
+            continue;
+        }
+
+        if (strncmp(p, "labels", 6) == 0 && strchr(" (", p[6]) != NULL) {
+            p += 6;
+            while (*p != '\0' && isspace((unsigned char)*p)) p++;
+            if (*p != '(')
+                Abort("LTLK obs parse error (line %d): expected '(' after labels", lineno);
+            p++;
+            char *start = p;
+            char *end = strchr(start, ')');
+            if (end == NULL)
+                Abort("LTLK obs parse error (line %d): missing ')' in labels(...)", lineno);
+            *end = '\0';
+            if (!touched) {
+                clear_agent_observable(cfg, agent);
+                touched = true;
+            }
+            parse_name_list_into_bits(start, ltstype, &cfg->observable_labels[agent], false, lineno);
+            saw_any = true;
+            p = end + 1;
+            continue;
+        }
+
+        Abort("LTLK obs parse error (line %d): expected vars(...) or labels(...) clause", lineno);
+    }
+
+    if (!saw_any)
+        Abort("LTLK obs parse error (line %d): obs declaration needs vars(...) and/or labels(...)", lineno);
+}
+
+static void
+append_text(char **out, size_t *len, size_t *cap, const char *s)
+{
+    size_t n = strlen(s);
+    if (*len + n + 1 > *cap) {
+        size_t new_cap = *cap == 0 ? 256 : *cap;
+        while (*len + n + 1 > new_cap) new_cap *= 2;
+        *out = RTrealloc(*out, new_cap);
+        *cap = new_cap;
+    }
+    memcpy(*out + *len, s, n);
+    *len += n;
+    (*out)[*len] = '\0';
+}
+
+static bool
+try_parse_ltlk_file_with_obs(const char *path, lts_type_t ltstype, char **formula_out)
+{
+    FILE *f = fopen(path, "r");
+    if (f == NULL) return false;
+
+    int state_len = lts_type_get_state_length(ltstype);
+    int edge_labels = lts_type_get_edge_label_count(ltstype);
+
+    int declared_agents = -1;
+    int max_agent_in_obs = -1;
+    bool saw_obs_decl = false;
+    bool header = true;
+
+    char line[4096];
+    char *formula = NULL;
+    size_t formula_len = 0, formula_cap = 0;
+
+    typedef struct {
+        int agent;
+        char *clauses;
+        int lineno;
+    } obs_decl_t;
+    obs_decl_t *decls = NULL;
+    size_t decl_count = 0, decl_cap = 0;
+
+    int lineno = 0;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        lineno++;
+        char *raw = line;
+        char *trim = trim_ws(raw);
+
+        if (header && (*trim == '\0' || *trim == '#'))
+            continue;
+        if (header && trim[0] == '/' && trim[1] == '/')
+            continue;
+
+        if (header && starts_with_word(trim, "agents")) {
+            char *eq = strchr(trim, '=');
+            char *num = (eq != NULL) ? eq + 1 : trim + 6;
+            num = trim_ws(num);
+            char *end = num;
+            long val = strtol(num, &end, 10);
+            while (*end != '\0' && isspace((unsigned char)*end)) end++;
+            if (*end == ';') end++;
+            while (*end != '\0' && isspace((unsigned char)*end)) end++;
+            if (*num == '\0' || *end != '\0' || val <= 0)
+                Abort("LTLK obs parse error (line %d): expected 'agents = <positive-int>;'", lineno);
+            declared_agents = (int)val;
+            continue;
+        }
+
+        if (header && starts_with_word(trim, "obs")) {
+            saw_obs_decl = true;
+            char *rest = trim + 3;
+            rest = trim_ws(rest);
+            char *colon = strchr(rest, ':');
+            if (colon == NULL)
+                Abort("LTLK obs parse error (line %d): expected ':' in obs declaration", lineno);
+            *colon = '\0';
+            char *aid_end = NULL;
+            long aid = strtol(rest, &aid_end, 10);
+            while (aid_end != NULL && *aid_end != '\0' && isspace((unsigned char)*aid_end)) aid_end++;
+            if (aid < 0)
+                Abort("LTLK obs parse error (line %d): invalid agent id", lineno);
+            if (aid_end == NULL || *aid_end != '\0')
+                Abort("LTLK obs parse error (line %d): expected numeric agent id", lineno);
+            if ((int)aid > max_agent_in_obs) max_agent_in_obs = (int)aid;
+
+            char *clauses = trim_ws(colon + 1);
+            size_t clen = strlen(clauses);
+            if (clen == 0 || clauses[clen - 1] != ';')
+                Abort("LTLK obs parse error (line %d): obs declaration must end with ';'", lineno);
+            clauses[clen - 1] = '\0';
+
+            if (decl_count == decl_cap) {
+                size_t new_cap = decl_cap == 0 ? 4 : decl_cap * 2;
+                decls = RTrealloc(decls, sizeof(obs_decl_t) * new_cap);
+                decl_cap = new_cap;
+            }
+            decls[decl_count].agent = (int)aid;
+            decls[decl_count].clauses = HREstrdup(trim_ws(clauses));
+            decls[decl_count].lineno = lineno;
+            decl_count++;
+            continue;
+        }
+
+        header = false;
+        append_text(&formula, &formula_len, &formula_cap, raw);
+    }
+    fclose(f);
+
+    if (formula == NULL || trim_ws(formula)[0] == '\0')
+        Abort("LTLK parse error: file '%s' does not contain a formula", path);
+
+    if (declared_agents > 0 && !saw_obs_decl) {
+        LTLK_NUM_AGENTS = declared_agents;
+    }
+
+    if (saw_obs_decl) {
+        int num_agents = declared_agents;
+        if (num_agents <= 0)
+            num_agents = (LTLK_NUM_AGENTS > 0) ? LTLK_NUM_AGENTS : (max_agent_in_obs + 1);
+        if (num_agents <= 0)
+            Abort("LTLK obs parse error: cannot infer number of agents");
+        if (max_agent_in_obs >= num_agents)
+            Abort("LTLK obs parse error: agent id %d out of range for agents=%d",
+                  max_agent_in_obs, num_agents);
+
+        ltlk_obs_config_t *cfg = RTmallocZero(sizeof(*cfg));
+        cfg->num_agents = num_agents;
+        cfg->observable_vars = RTmalloc(sizeof(bitvector_t) * num_agents);
+        cfg->observable_labels = RTmalloc(sizeof(bitvector_t) * num_agents);
+        set_all_observable(cfg, state_len, edge_labels);
+
+        for (size_t i = 0; i < decl_count; i++) {
+            parse_obs_clauses(decls[i].clauses, ltstype, cfg, decls[i].agent, decls[i].lineno);
+        }
+
+        LTLK_NUM_AGENTS = num_agents;
+        GBsetLTLKObservability(cfg);
+    }
+
+    for (size_t i = 0; i < decl_count; i++)
+        RTfree(decls[i].clauses);
+    RTfree(decls);
+
+    *formula_out = formula;
+    return true;
 }
 
 static int
@@ -271,6 +565,17 @@ build_k_atom_companions(model_t model, ltsmin_buchi_t *outer_ba,
 
         /* pred = K_i(phi_j); we want to build a companion BA for phi_j.   */
         ltsmin_expr_t phi = pred->arg1;
+
+        /* Companion BA predicates are evaluated with eval_state_predicate,
+         * which does not understand epistemic operators. For epistemic
+         * inners, keep companion NULL and use recursive knowledge_forall.
+         */
+        if (has_epistemic(phi)) {
+            companions[i].ba  = NULL;
+            companions[i].env = NULL;
+            Print1(info, "LTLK: K-atom %d uses epistemic inner formula; using recursive evaluator", i);
+            continue;
+        }
 
         /* Build the companion by calling ltl2ba directly on phi_j.        */
         /* ltl2ba_init() (called inside ltsmin_ltl2ba()) fully resets the  */
@@ -494,9 +799,11 @@ ltlk_spin_cb(void *context, transition_info_t *ti, int *dst, int *cpy)
 
     const int *src_knowledge = infoctx->src + ctx->know_idx;
     int *dst_knowledge = dst_new + ctx->know_idx;
+    const int *obs_labels = (ti != NULL) ? ti->labels : NULL;
     for (int a = 0; a < ctx->num_agents; a++) {
         dst_knowledge[a] = knowledge_update_belief(ctx->knowledge, a,
-                                                   src_knowledge[a], dst);
+                                                   src_knowledge[a], dst,
+                                                   obs_labels);
     }
 
     int pred_evals = infoctx->predicate_evals;
@@ -575,16 +882,30 @@ init_observability(ltlk_context_t *ctx)
     if (ltlk_obs != NULL) {
         ctx->num_agents = ltlk_obs->num_agents;
         ctx->observable_vars = ltlk_obs->observable_vars;
+        if (ltlk_obs->observable_labels != NULL) {
+            ctx->observable_labels = ltlk_obs->observable_labels;
+        } else {
+            ctx->observable_labels = RTmalloc(sizeof(bitvector_t) * ctx->num_agents);
+            for (int a = 0; a < ctx->num_agents; a++) {
+                bitvector_create(&ctx->observable_labels[a], ctx->old_edge_labels);
+                for (int i = 0; i < ctx->old_edge_labels; i++)
+                    bitvector_set(&ctx->observable_labels[a], i);
+            }
+        }
         return;
     }
 
     ctx->num_agents = LTLK_NUM_AGENTS > 0 ? LTLK_NUM_AGENTS : 2;
     ctx->observable_vars = RTmalloc(sizeof(bitvector_t) * ctx->num_agents);
+    ctx->observable_labels = RTmalloc(sizeof(bitvector_t) * ctx->num_agents);
 
     for (int a = 0; a < ctx->num_agents; a++) {
         bitvector_create(&ctx->observable_vars[a], ctx->old_len);
+        bitvector_create(&ctx->observable_labels[a], ctx->old_edge_labels);
         for (int i = 0; i < ctx->old_len; i++)
             bitvector_set(&ctx->observable_vars[a], i);
+        for (int i = 0; i < ctx->old_edge_labels; i++)
+            bitvector_set(&ctx->observable_labels[a], i);
     }
 }
 
@@ -596,8 +917,12 @@ GBaddLTLK(model_t model)
         Abort("Only sync-perfect-recall LTLK semantics is supported");
 
     lts_type_t ltstype = GBgetLTStype(model);
+    char *parsed_formula = NULL;
+    bool parsed_ltlk_file = try_parse_ltlk_file_with_obs(ltlk_file, ltstype, &parsed_formula);
     ltsmin_parse_env_t env = LTSminParseEnvCreate();
-    ltsmin_expr_t ltlk_expr = ltlk_parse_file(ltlk_file, env, ltstype);
+    ltsmin_expr_t ltlk_expr = ltlk_parse_file(parsed_ltlk_file ? parsed_formula : ltlk_file,
+                                              env, ltstype);
+    if (parsed_ltlk_file) RTfree(parsed_formula);
     if (ltlk_expr == NULL)
         Abort("Failed to parse LTLK formula: %s", ltlk_file);
 
@@ -609,6 +934,7 @@ GBaddLTLK(model_t model)
     ctx->ltlk_expr = ltlk_expr;
     ctx->env = env;
     ctx->old_len = lts_type_get_state_length(ltstype);
+    ctx->old_edge_labels = lts_type_get_edge_label_count(ltstype);
     ctx->ltl_idx = 0;
 
     set_pins_semantics(model, ltlk_expr, env, NULL, NULL);
@@ -819,21 +1145,22 @@ GBaddLTLK(model_t model)
 
     GBinitModelDefaults(&out, model);
 
-    ctx->old_edge_labels = lts_type_get_edge_label_count(ltstype);
     ctx->edge_labels = lts_type_get_edge_label_count(ltstype_new);
     ctx->edge_labels_buf = RTmalloc(sizeof(int) * ctx->edge_labels);
 
-    ctx->knowledge = knowledge_create(model, ctx->old_len, ctx->num_agents,
+    ctx->knowledge = knowledge_create(model, ctx->old_len, ctx->old_edge_labels,
+                                      ctx->num_agents,
                                       ctx->observable_vars,
+                                      ctx->observable_labels,
                                       ctx->k_atoms_count, ctx->k_atoms);
 
     int init[new_len];
     GBgetInitialState(model, init + 1);
     init[ctx->ltl_idx] = 0;
 
-    int init_sid = knowledge_register_initial_state(ctx->knowledge, init + 1);
+    int init_bid = knowledge_make_initial_belief(ctx->knowledge, init + 1);
     for (int a = 0; a < ctx->num_agents; a++)
-        init[ctx->know_idx + a] = knowledge_make_singleton(ctx->knowledge, init_sid);
+        init[ctx->know_idx + a] = init_bid;
 
     GBsetInitialState(out, init);
 

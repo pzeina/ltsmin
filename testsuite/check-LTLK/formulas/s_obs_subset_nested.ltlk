@@ -1,0 +1,5 @@
+agents = 2;
+obs 0: vars(P1,P2);
+obs 1: vars(P1,P2);
+
+K0(K1(P1=="wait_1"))

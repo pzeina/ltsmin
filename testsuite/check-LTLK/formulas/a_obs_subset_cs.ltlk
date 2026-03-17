@@ -1,0 +1,5 @@
+agents = 2;
+obs 0: vars(P_0);
+obs 1: vars(P_1);
+
+K0(P_1=="CS")

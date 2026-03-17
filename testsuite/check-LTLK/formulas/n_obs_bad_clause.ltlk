@@ -1,0 +1,4 @@
+agents = 2;
+obs 0: foo(P1);
+
+K0(P1=="wait_1")
