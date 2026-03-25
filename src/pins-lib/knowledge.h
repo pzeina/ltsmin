@@ -41,7 +41,9 @@ typedef int (*knowledge_eval_cb)(void *ctx, const int *model_state);
     * filter) and the BA parts (one step of each companion automaton).
     *
     * K_i(phi_j) is TRUE at step t iff every enriched belief state in B_i(t)
-    * has the k_j component in an accepting state of ba_j.
+    * has the k_j component in a BA state that can still reach an accepting
+    * SCC of ba_j (i.e., the companion automaton still has an accepting
+    * continuation from that state).
     */
 
 /* Forward declarations – avoid pulling full headers into knowledge.h */
@@ -103,9 +105,11 @@ void knowledge_destroy(knowledge_mgr_t *km);
 int knowledge_num_agents(const knowledge_mgr_t *km);
 
 /**
- * Register the INITIAL model state.  Internally builds the enriched state
+ * Legacy helper: register the INITIAL model state as
  * [model_state | 0 | 0 | ...] (companion BA states initialised to 0).
- * Use this instead of knowledge_register_state() for the product's init.
+ *
+ * This does NOT advance companion BAs on the initial valuation.
+ * LTLK product initialization should use knowledge_make_initial_belief().
  */
 int knowledge_register_initial_state(knowledge_mgr_t *km,
                                                                          const int *model_state);
@@ -131,8 +135,10 @@ int knowledge_forall(const knowledge_mgr_t *km, int belief_id,
 /**
  * Evaluate K_i(phi_j) using the companion automaton for k_atom_idx.
  *
- * Returns 1  if every enriched belief state has ba_j in an accepting state.
- * Returns 0  if at least one enriched belief state has ba_j non-accepting or
+ * Returns 1  if every enriched belief state has ba_j in a state that can
+ *            still reach an accepting SCC.
+ * Returns 0  if at least one enriched belief state is already in a BA state
+ *            with no accepting continuation, or
  *            if ba_j == NULL (caller should fall back to knowledge_forall).
  * Returns -1 if k_atom_idx is out of range or has no companion BA (ba==NULL).
  */

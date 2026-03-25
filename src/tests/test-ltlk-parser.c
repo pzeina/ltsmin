@@ -9,6 +9,9 @@
 #undef Debug
 #include <hre/user.h>
 #include <ltsmin-lib/ltl2ba-lex.h>
+#ifdef HAVE_SPOT
+#include <ltsmin-lib/ltl2spot.h>
+#endif
 #include <ltsmin-lib/lts-type.h>
 #include <ltsmin-lib/ltsmin-standard.h>
 #include <ltsmin-lib/ltsmin-buchi.h>
@@ -43,6 +46,40 @@ count_predicates_with_token(ltsmin_buchi_t *ba, int token)
     return count;
 }
 
+static int
+has_past_operator(const ltsmin_expr_t e)
+{
+    if (e == NULL) return 0;
+    switch (e->node_type) {
+    case UNARY_OP:
+        if (e->token == LTLK_PREVIOUS || e->token == LTLK_ONCE || e->token == LTLK_HISTORICALLY)
+            return 1;
+        return has_past_operator(e->arg1);
+    case BINARY_OP:
+        if (e->token == LTLK_SINCE)
+            return 1;
+        return has_past_operator(e->arg1) || has_past_operator(e->arg2);
+    default:
+        return 0;
+    }
+}
+
+static ltsmin_buchi_t *
+build_buchi_from_neg(ltsmin_expr_t neg, ltsmin_parse_env_t env)
+{
+    if (has_past_operator(neg)) {
+#ifdef HAVE_SPOT
+        ltsmin_ltl2spot(neg, 0, env);
+        return ltsmin_hoa_buchi(env);
+#else
+        return NULL;
+#endif
+    }
+
+    ltsmin_ltl2ba(neg);
+    return ltsmin_buchi();
+}
+
 static void
 check_formula_once(const char *formula, int expected_k_preds)
 {
@@ -52,8 +89,14 @@ check_formula_once(const char *formula, int expected_k_preds)
     assert(expr != NULL);
 
     ltsmin_expr_t neg = LTSminExpr(UNARY_OP, LTLK_NOT, 0, expr, NULL);
-    ltsmin_ltl2ba(neg);
-    ltsmin_buchi_t *ba = ltsmin_buchi();
+    ltsmin_buchi_t *ba = build_buchi_from_neg(neg, env);
+#ifndef HAVE_SPOT
+    if (ba == NULL) {
+        /* Past operators require Spot; parser/type-check coverage is still valid. */
+        LTSminParseEnvDestroy(env);
+        return;
+    }
+#endif
     assert(ba != NULL);
     assert(count_predicates_with_token(ba, LTLK_KNOWS) == expected_k_preds);
 
@@ -105,6 +148,12 @@ main(int argc, char *argv[])
     check_formula("K0(true U true)", 1);
     check_formula("<> K0([] true)", 1);
     check_formula("<> (K0(true) && K1(true))", 2);
+#ifdef HAVE_SPOT
+    check_formula("K0(O true)", 1);
+    check_formula("K0(H true)", 1);
+    check_formula("K0(Y true)", 1);
+    check_formula("K0(true S true)", 1);
+#endif
     check_reproducibility();
     check_scalability();
 

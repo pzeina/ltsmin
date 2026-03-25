@@ -1,4 +1,5 @@
 noinst_LTLIBRARIES     	= libdm.la
+noinst_LTLIBRARIES		+= libdm_debug.la
 
 if HAVE_BOOST
 noinst_LTLIBRARIES		+= libdm_boost.la
@@ -7,8 +8,6 @@ endif
 if HAVE_VIENNACL 
 noinst_LTLIBRARIES		+=  libdm_viennacl.la
 endif
-
-check_LTLIBRARIES  		= libdm_debug.la
 
 pkginclude_HEADERS = dm.h bitvector.h
 

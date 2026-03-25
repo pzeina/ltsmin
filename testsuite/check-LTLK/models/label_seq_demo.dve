@@ -1,0 +1,40 @@
+// Label sequence demo: guards encode transition labels (symbols: a, b, c)
+// Each guard condition represents taking a labeled path through the system
+// Demonstrates how different symbolic transitions create observable word sequences
+
+byte symbol;
+
+process Sender
+{
+  state s0, s1, s2;
+  init s0;
+  trans
+    // Transition labeled 'a': s0 -> s1
+    s0 -> s1 { effect symbol = 0; },
+    // Transition labeled 'b': s1 -> s2  
+    s1 -> s2 { effect symbol = 1; },
+    // Transition labeled 'c': s2 -> s0
+    s2 -> s0 { effect symbol = 2; };
+}
+
+process Receiver
+{
+  byte last_symbol;
+  state idle;
+  init idle;
+  trans
+    // Receiver observes all symbols
+    idle -> idle { effect last_symbol = symbol; };
+}
+
+process Monitor
+{
+  state q0, q1;
+  init q0;
+  accept q1;
+  trans
+    q0 -> q1 { guard true; },
+    q1 -> q1 { guard true; };
+}
+
+system async property Monitor;

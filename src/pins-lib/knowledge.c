@@ -44,7 +44,155 @@ struct knowledge_mgr {
      /* companion Büchi automata for K_i(phi_j) predicates ------------------- */
      int                       num_k_atoms; /* 0 => propositional-only (legacy) */
      const k_atom_companion_t *k_atoms;     /* array[num_k_atoms]; may be NULL  */
+     uint8_t                **k_atom_may_accept; /* per-atom BA-state viability */
 };
+
+static uint8_t *
+compute_ba_may_accept(struct ltsmin_buchi *ba)
+{
+    int n = ba->state_count;
+    uint8_t *may_accept = RTmallocZero(sizeof(uint8_t) * (size_t)n);
+    if (n <= 0) return may_accept;
+
+    int *in_deg = RTmallocZero(sizeof(int) * (size_t)n);
+    for (int s = 0; s < n; s++) {
+        ltsmin_buchi_state_t *bs = ba->states[s];
+        for (int t = 0; t < bs->transition_count; t++) {
+            int to = bs->transitions[t].to_state;
+            if (to >= 0 && to < n) in_deg[to]++;
+        }
+    }
+
+    int *rev_off = RTmallocZero(sizeof(int) * (size_t)(n + 1));
+    for (int i = 0; i < n; i++) rev_off[i + 1] = rev_off[i] + in_deg[i];
+    int m = rev_off[n];
+    int *rev = RTmalloc(sizeof(int) * (size_t)m);
+    int *fill = RTmallocZero(sizeof(int) * (size_t)n);
+
+    for (int s = 0; s < n; s++) {
+        ltsmin_buchi_state_t *bs = ba->states[s];
+        for (int t = 0; t < bs->transition_count; t++) {
+            int to = bs->transitions[t].to_state;
+            if (to < 0 || to >= n) continue;
+            int idx = rev_off[to] + fill[to]++;
+            rev[idx] = s;
+        }
+    }
+
+    uint8_t *vis = RTmallocZero(sizeof(uint8_t) * (size_t)n);
+    int *order = RTmalloc(sizeof(int) * (size_t)n);
+    int order_n = 0;
+
+    for (int start = 0; start < n; start++) {
+        if (vis[start]) continue;
+        int *stack_v = RTmalloc(sizeof(int) * (size_t)n);
+        int *stack_i = RTmallocZero(sizeof(int) * (size_t)n);
+        int sp = 0;
+        stack_v[sp++] = start;
+        vis[start] = 1;
+
+        while (sp > 0) {
+            int v = stack_v[sp - 1];
+            ltsmin_buchi_state_t *bs = ba->states[v];
+            if (stack_i[sp - 1] < bs->transition_count) {
+                int to = bs->transitions[stack_i[sp - 1]++].to_state;
+                if (to >= 0 && to < n && !vis[to]) {
+                    vis[to] = 1;
+                    stack_v[sp] = to;
+                    stack_i[sp] = 0;
+                    sp++;
+                }
+            } else {
+                order[order_n++] = v;
+                sp--;
+            }
+        }
+
+        RTfree(stack_v);
+        RTfree(stack_i);
+    }
+
+    memset(vis, 0, sizeof(uint8_t) * (size_t)n);
+    int *comp = RTmalloc(sizeof(int) * (size_t)n);
+    for (int i = 0; i < n; i++) comp[i] = -1;
+    int comp_count = 0;
+
+    for (int oi = order_n - 1; oi >= 0; oi--) {
+        int root = order[oi];
+        if (vis[root]) continue;
+
+        int *stack = RTmalloc(sizeof(int) * (size_t)n);
+        int sp = 0;
+        stack[sp++] = root;
+        vis[root] = 1;
+
+        while (sp > 0) {
+            int v = stack[--sp];
+            comp[v] = comp_count;
+            for (int ri = rev_off[v]; ri < rev_off[v + 1]; ri++) {
+                int p = rev[ri];
+                if (!vis[p]) {
+                    vis[p] = 1;
+                    stack[sp++] = p;
+                }
+            }
+        }
+
+        RTfree(stack);
+        comp_count++;
+    }
+
+    uint8_t *comp_has_accept = RTmallocZero(sizeof(uint8_t) * (size_t)comp_count);
+    uint8_t *comp_has_cycle = RTmallocZero(sizeof(uint8_t) * (size_t)comp_count);
+
+    for (int s = 0; s < n; s++) {
+        int c = comp[s];
+        if (ba->states[s]->accept) comp_has_accept[c] = 1;
+        ltsmin_buchi_state_t *bs = ba->states[s];
+        for (int t = 0; t < bs->transition_count; t++) {
+            int to = bs->transitions[t].to_state;
+            if (to >= 0 && to < n && comp[to] == c) {
+                comp_has_cycle[c] = 1;
+                break;
+            }
+        }
+    }
+
+    int *queue = RTmalloc(sizeof(int) * (size_t)n);
+    int qh = 0, qt = 0;
+
+    for (int s = 0; s < n; s++) {
+        int c = comp[s];
+        if (comp_has_accept[c] && comp_has_cycle[c]) {
+            may_accept[s] = 1;
+            queue[qt++] = s;
+        }
+    }
+
+    while (qh < qt) {
+        int v = queue[qh++];
+        for (int ri = rev_off[v]; ri < rev_off[v + 1]; ri++) {
+            int p = rev[ri];
+            if (!may_accept[p]) {
+                may_accept[p] = 1;
+                queue[qt++] = p;
+            }
+        }
+    }
+
+    RTfree(in_deg);
+    RTfree(rev_off);
+    RTfree(rev);
+    RTfree(fill);
+    RTfree(vis);
+    RTfree(order);
+    RTfree(comp);
+    RTfree(comp_has_accept);
+    RTfree(comp_has_cycle);
+    RTfree(queue);
+
+    return may_accept;
+}
 
 #define EMPTY_SLOT (-1)
 
@@ -286,6 +434,7 @@ knowledge_mgr_t *
     km->num_agents = num_agents;
     km->observable_vars = observable_vars;
     km->observable_labels = observable_labels;
+    km->k_atom_may_accept = NULL;
 
     km->states.capacity = 1024;
      km->states.flat = RTmalloc(sizeof(int) * (size_t)km->states.capacity * km->state_length);
@@ -298,6 +447,14 @@ knowledge_mgr_t *
     belief_hash_init(&km->beliefs);
 
     (void)intern_belief(km, NULL, 0);
+
+    if (num_k_atoms > 0) {
+        km->k_atom_may_accept = RTmallocZero(sizeof(uint8_t *) * (size_t)num_k_atoms);
+        for (int k = 0; k < num_k_atoms; k++) {
+            if (k_atoms != NULL && k_atoms[k].ba != NULL)
+                km->k_atom_may_accept[k] = compute_ba_may_accept(k_atoms[k].ba);
+        }
+    }
 
     return km;
 }
@@ -314,6 +471,11 @@ knowledge_destroy(knowledge_mgr_t *km)
     RTfree(km->beliefs.hash_slots);
     RTfree(km->states.flat);
     RTfree(km->states.hash_slots);
+    if (km->k_atom_may_accept != NULL) {
+        for (int k = 0; k < km->num_k_atoms; k++)
+            RTfree(km->k_atom_may_accept[k]);
+        RTfree(km->k_atom_may_accept);
+    }
     RTfree(km);
 }
 
@@ -399,12 +561,6 @@ expand_initial_ba_states(init_belief_ctx_t *ctx, int *enriched, int k_idx)
     }
 
     int q0 = 0;
-    if (q0 < 0 || q0 >= atom->ba->state_count) {
-        enriched[km->model_len + k_idx] = atom->ba->state_count;
-        expand_initial_ba_states(ctx, enriched, k_idx + 1);
-        enriched[km->model_len + k_idx] = 0;
-        return;
-    }
 
     int pred_bits = 0;
     for (int p = 0; p < atom->ba->predicate_count; p++) {
@@ -434,9 +590,10 @@ expand_initial_ba_states(init_belief_ctx_t *ctx, int *enriched, int k_idx)
     }
 
     if (!any) {
+        int saved_q = enriched[km->model_len + k_idx];
         enriched[km->model_len + k_idx] = atom->ba->state_count;
         expand_initial_ba_states(ctx, enriched, k_idx + 1);
-        enriched[km->model_len + k_idx] = 0;
+        enriched[km->model_len + k_idx] = saved_q;
     }
 }
 
@@ -526,17 +683,19 @@ knowledge_make_initial_belief(knowledge_mgr_t *km, const int *model_state)
       * the companion automaton at some earlier step.  Keep it permanently
       * with the sentinel so knowledge_k_atom_holds() always returns FALSE.  */
      if (old_q == atom->ba->state_count) {
+         int saved_q = enriched[km->model_len + k_idx];
          enriched[km->model_len + k_idx] = atom->ba->state_count;
          expand_ba_states(ctx, enriched, k_idx + 1);
-         enriched[km->model_len + k_idx] = 0;
+         enriched[km->model_len + k_idx] = saved_q;
          return;
      }
 
      /* Unrecognised out-of-range state: treat as dead. */
      if (old_q < 0 || old_q >= atom->ba->state_count) {
+         int saved_q = enriched[km->model_len + k_idx];
          enriched[km->model_len + k_idx] = atom->ba->state_count;
          expand_ba_states(ctx, enriched, k_idx + 1);
-         enriched[km->model_len + k_idx] = 0;
+         enriched[km->model_len + k_idx] = saved_q;
          return;
      }
 
@@ -577,10 +736,11 @@ knowledge_make_initial_belief(knowledge_mgr_t *km, const int *model_state)
           * in the set, but mark it with a "dead/non-accepting" sentinel index
           * (= ba->state_count, which is one beyond the valid range) so that
           * knowledge_k_atom_holds() correctly returns FALSE.               */
+         int saved_q = enriched[km->model_len + k_idx];
          enriched[km->model_len + k_idx] = atom->ba->state_count;
          expand_ba_states(ctx, enriched, k_idx + 1);
          /* Restore so the outer loop can continue cleanly. */
-         enriched[km->model_len + k_idx] = 0;
+         enriched[km->model_len + k_idx] = saved_q;
      }
  }
 
@@ -718,11 +878,17 @@ knowledge_forall(const knowledge_mgr_t *km, int belief_id,
               * the companion automaton rejected this trajectory.          */
              if (q < 0 || q >= atom->ba->state_count) return 0;
 
-             /* K_i(phi_j) is true only if ALL belief-state companion BA states
-              * are currently ACCEPTING.  For safety formulas (G p) the BA has
-              * one accepting sink; for liveness (F p) the accepting state is
-              * reached once p has been witnessed.                            */
-             if (!atom->ba->states[q]->accept) return 0;
+             /* K_i(phi_j) holds only if every belief-state BA component still
+              * has a possible accepting continuation (i.e. can reach an
+              * accepting SCC in the companion automaton). This avoids
+              * rejecting eventualities like F p merely because p has not been
+              * seen yet at the current prefix. */
+             if (km->k_atom_may_accept == NULL ||
+                 km->k_atom_may_accept[k_atom_idx] == NULL) {
+                 if (!atom->ba->states[q]->accept) return 0;
+             } else if (!km->k_atom_may_accept[k_atom_idx][q]) {
+                 return 0;
+             }
          }
      }
      return 1;

@@ -1,0 +1,33 @@
+// Custom DVE model for LTLK observability demo in regression tests.
+// Variables exposed to LTLK formulas are the process-state variables: Env and Agent.
+
+process Env
+{
+  state st_init, st_sense, st_done;
+  init st_init;
+  trans
+    st_init -> st_sense { guard true; },
+    st_sense -> st_done { guard true; },
+    st_done -> st_done { guard true; };
+}
+
+process Agent
+{
+  state idle, seen;
+  init idle;
+  trans
+    idle -> seen { guard true; },
+    seen -> seen { guard true; };
+}
+
+process Monitor
+{
+  state q0, q1;
+  init q0;
+  accept q1;
+  trans
+    q0 -> q1 { guard true; },
+    q1 -> q1 { guard true; };
+}
+
+system async property Monitor;

@@ -73,7 +73,11 @@ typedef enum {
     LTL_WEAK_UNTIL,
     LTL_STRONG_RELEASE,
     LTL_NEXT,
-    LTL_UNTIL
+    LTL_UNTIL,
+    LTL_PREVIOUS,
+    LTL_ONCE,
+    LTL_HISTORICALLY,
+    LTL_SINCE
 } LTL;
 
 extern ltsmin_expr_t ltl_parse_file(const char *,ltsmin_parse_env_t,lts_type_t);
@@ -113,6 +117,10 @@ typedef enum {
     LTLK_STRONG_RELEASE,
     LTLK_NEXT,
     LTLK_UNTIL,
+    LTLK_PREVIOUS,
+    LTLK_ONCE,
+    LTLK_HISTORICALLY,
+    LTLK_SINCE,
     
     /* Epistemic operators */
     LTLK_KNOWS,              // K<agent>(phi) - agent knows phi

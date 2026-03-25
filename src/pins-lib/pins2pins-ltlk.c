@@ -12,6 +12,9 @@
 #include <hre/unix.h>
 #include <hre/user.h>
 #include <ltsmin-lib/ltl2ba-lex.h>
+#ifdef HAVE_SPOT
+#include <ltsmin-lib/ltl2spot.h>
+#endif
 #include <ltsmin-lib/ltsmin-standard.h>
 #include <ltsmin-lib/ltsmin-buchi.h>
 #include <ltsmin-lib/ltsmin-syntax.h>
@@ -61,6 +64,8 @@ typedef struct ltlk_context {
     bitvector_t        *observable_vars;
     bitvector_t        *observable_labels;
     int                 know_idx;
+    int                 past_idx;
+    int                 model_ext_len;
     int                 k_base_idx;
 
     knowledge_mgr_t    *knowledge;
@@ -69,7 +74,19 @@ typedef struct ltlk_context {
      /* (NULL.ba means the predicate is plain propositional, not a K-atom) */
      k_atom_companion_t *k_atoms;
      int                 k_atoms_count; /* = ba->predicate_count            */
+
+    ltsmin_expr_t       original_expr;
+    struct past_slot_s *past_slots;
+    int                 past_count;
 } ltlk_context_t;
+
+typedef struct past_slot_s {
+    ltsmin_expr_t orig;          /* original past subformula */
+    int           token;         /* LTLK_PREVIOUS/LTLK_ONCE/LTLK_HISTORICALLY/LTLK_SINCE */
+    int           state_idx;     /* index in extended model state (without BA slot) */
+    ltsmin_expr_t arg1_rewritten;/* arg with past recursively replaced by history vars */
+    ltsmin_expr_t arg2_rewritten;/* idem for binary since */
+} past_slot_t;
 
 typedef struct ltlk_cb_context {
     model_t         model;
@@ -503,19 +520,198 @@ has_temporal_operator(ltsmin_expr_t e)
     case UNARY_OP:
         if (e->token == LTLK_GLOBALLY ||
             e->token == LTLK_FUTURE   ||
-            e->token == LTLK_NEXT)
+            e->token == LTLK_NEXT     ||
+            e->token == LTLK_PREVIOUS ||
+            e->token == LTLK_ONCE     ||
+            e->token == LTLK_HISTORICALLY)
             return true;
         return has_temporal_operator(e->arg1);
     case BINARY_OP:
         if (e->token == LTLK_UNTIL ||
             e->token == LTLK_RELEASE ||
             e->token == LTLK_WEAK_UNTIL ||
-            e->token == LTLK_STRONG_RELEASE)
+            e->token == LTLK_STRONG_RELEASE ||
+            e->token == LTLK_SINCE)
             return true;
         return has_temporal_operator(e->arg1) || has_temporal_operator(e->arg2);
     default:
         return false;
     }
+}
+
+static bool
+has_past_operator(ltsmin_expr_t e)
+{
+    if (e == NULL) return false;
+    switch (e->node_type) {
+    case UNARY_OP:
+        if (e->token == LTLK_PREVIOUS ||
+            e->token == LTLK_ONCE ||
+            e->token == LTLK_HISTORICALLY)
+            return true;
+        return has_past_operator(e->arg1);
+    case BINARY_OP:
+        if (e->token == LTLK_SINCE)
+            return true;
+        return has_past_operator(e->arg1) || has_past_operator(e->arg2);
+    default:
+        return false;
+    }
+}
+
+static bool
+is_future_operator_token(int token)
+{
+    return token == LTLK_NEXT ||
+           token == LTLK_FUTURE ||
+           token == LTLK_GLOBALLY ||
+           token == LTLK_UNTIL ||
+           token == LTLK_RELEASE ||
+           token == LTLK_WEAK_UNTIL ||
+           token == LTLK_STRONG_RELEASE;
+}
+
+static bool
+has_future_operator(ltsmin_expr_t e)
+{
+    if (e == NULL) return false;
+
+    switch (e->node_type) {
+    case UNARY_OP:
+        if (is_future_operator_token(e->token))
+            return true;
+        return has_future_operator(e->arg1);
+    case BINARY_OP:
+        if (is_future_operator_token(e->token))
+            return true;
+        return has_future_operator(e->arg1) || has_future_operator(e->arg2);
+    default:
+        return false;
+    }
+}
+
+static bool
+has_state_ref_ge(ltsmin_expr_t e, int threshold)
+{
+    if (e == NULL) return false;
+    if (e->node_type == SVAR && e->idx >= threshold)
+        return true;
+    return has_state_ref_ge(e->arg1, threshold) || has_state_ref_ge(e->arg2, threshold);
+}
+
+static bool
+is_past_token(int token)
+{
+    return token == LTLK_PREVIOUS ||
+           token == LTLK_ONCE ||
+           token == LTLK_HISTORICALLY ||
+           token == LTLK_SINCE;
+}
+
+static int
+find_past_slot(const ltlk_context_t *ctx, ltsmin_expr_t e)
+{
+    for (int i = 0; i < ctx->past_count; i++) {
+        if (LTSminExprEq(ctx->past_slots[i].orig, e))
+            return i;
+    }
+    return -1;
+}
+
+static int
+collect_past_slots_rec(ltlk_context_t *ctx, ltsmin_expr_t e, int old_len)
+{
+    (void)old_len;
+    if (e == NULL) return 0;
+
+    if (e->arg1 != NULL) collect_past_slots_rec(ctx, e->arg1, old_len);
+    if (e->arg2 != NULL) collect_past_slots_rec(ctx, e->arg2, old_len);
+
+    if (e->node_type != UNARY_OP && e->node_type != BINARY_OP)
+        return 0;
+    if (!is_past_token(e->token))
+        return 0;
+
+    if (find_past_slot(ctx, e) != -1)
+        return 0;
+
+    ctx->past_slots = RTrealloc(ctx->past_slots, sizeof(past_slot_t) * (ctx->past_count + 1));
+    past_slot_t *slot = &ctx->past_slots[ctx->past_count];
+    memset(slot, 0, sizeof(*slot));
+    slot->orig = e;
+    slot->token = e->token;
+    slot->state_idx = -1;
+    ctx->past_count++;
+    return 0;
+}
+
+static ltsmin_expr_t
+make_hist_var_expr(int idx)
+{
+    return LTSminExpr(SVAR, SVAR, idx, NULL, NULL);
+}
+
+static ltsmin_expr_t
+rewrite_past_to_history_vars(ltlk_context_t *ctx, ltsmin_expr_t e)
+{
+    if (e == NULL) return NULL;
+
+    if ((e->node_type == UNARY_OP || e->node_type == BINARY_OP) && is_past_token(e->token)) {
+        int slot = find_past_slot(ctx, e);
+        HREassert(slot >= 0, "Missing past-slot mapping during rewrite");
+        return make_hist_var_expr(ctx->past_slots[slot].state_idx);
+    }
+
+    ltsmin_expr_t out = LTSminExpr(e->node_type, e->token, e->idx, NULL, NULL);
+    if (e->arg1) out->arg1 = rewrite_past_to_history_vars(ctx, e->arg1);
+    if (e->arg2) out->arg2 = rewrite_past_to_history_vars(ctx, e->arg2);
+    LTSminExprRehash(out);
+    return out;
+}
+
+static void
+prepare_past_elimination(ltlk_context_t *ctx, ltsmin_parse_env_t env, int old_len)
+{
+    if (!has_past_operator(ctx->ltlk_expr))
+        return;
+
+    collect_past_slots_rec(ctx, ctx->ltlk_expr, old_len);
+    int max_idx = old_len - 1;
+
+    for (int i = 0; i < ctx->past_count; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "__past_%d", i);
+        int idx = LTSminStateVarIndex(env, name);
+        ctx->past_slots[i].state_idx = idx;
+        if (idx > max_idx) max_idx = idx;
+    }
+    ctx->model_ext_len = max_idx + 1;
+
+    for (int i = 0; i < ctx->past_count; i++) {
+        past_slot_t *slot = &ctx->past_slots[i];
+        if (slot->orig->arg1 != NULL) {
+            if (has_future_operator(slot->orig->arg1)) {
+                Abort("Past-operator argument with future operators is not supported yet in history elimination");
+            }
+            slot->arg1_rewritten = rewrite_past_to_history_vars(ctx, slot->orig->arg1);
+        }
+        if (slot->orig->arg2 != NULL) {
+            if (has_future_operator(slot->orig->arg2)) {
+                Abort("Past-operator argument with future operators is not supported yet in history elimination");
+            }
+            slot->arg2_rewritten = rewrite_past_to_history_vars(ctx, slot->orig->arg2);
+        }
+    }
+
+    ctx->ltlk_expr = rewrite_past_to_history_vars(ctx, ctx->ltlk_expr);
+}
+
+static ltsmin_buchi_t *
+ltlk_expr_to_buchi(ltsmin_expr_t expr, ltsmin_parse_env_t env)
+{
+    (void)env;
+    ltsmin_ltl2ba(expr);
+    return ltsmin_buchi();
 }
 
 /* Forward declaration: real implementation after companion helpers. */
@@ -530,10 +726,9 @@ init_ltlk_buchi(model_t model, ltsmin_expr_t ltlk_expr, ltsmin_parse_env_t env)
 
 /* Build companion BA: call ltl2ba directly on phi_j (NOT negated). */
 static ltsmin_buchi_t *
-init_companion_ba(ltsmin_expr_t phi)
+init_companion_ba(ltsmin_expr_t phi, ltsmin_parse_env_t env)
 {
-    ltsmin_ltl2ba(phi);
-    return ltsmin_buchi();
+    return ltlk_expr_to_buchi(phi, env);
 }
 
 /* -----------------------------------------------------------------------
@@ -581,7 +776,7 @@ build_k_atom_companions(model_t model, ltsmin_buchi_t *outer_ba,
         /* ltl2ba_init() (called inside ltsmin_ltl2ba()) fully resets the  */
         /* global state after the ltl2ba_reset_mem/_lex fixes, so repeated */
         /* calls are now safe.                                              */
-        ltsmin_buchi_t *comp = init_companion_ba(phi);
+        ltsmin_buchi_t *comp = init_companion_ba(phi, env);
 
         if (comp == NULL) {
             /* ltl2ba produced no automaton. For propositional phi this will
@@ -592,9 +787,24 @@ build_k_atom_companions(model_t model, ltsmin_buchi_t *outer_ba,
             Print1(info, "LTLK: K-atom %d companion BA is empty", i);
         } else {
             comp->env = env;
+            bool uses_internal_history = false;
+            for (int p = 0; p < comp->predicate_count; p++) {
+                if (has_state_ref_ge(comp->predicates[p], lts_type_get_state_length(GBgetLTStype(model)))) {
+                    uses_internal_history = true;
+                    break;
+                }
+            }
+            if (uses_internal_history) {
+                companions[i].ba  = NULL;
+                companions[i].env = NULL;
+                Print1(info, "LTLK: K-atom %d companion uses internal history vars; using recursive evaluator", i);
+                continue;
+            }
             /* Register predicate semantics so eval_state_predicate works. */
-            for (int p = 0; p < comp->predicate_count; p++)
-                set_pins_semantics(model, comp->predicates[p], env, NULL, NULL);
+            for (int p = 0; p < comp->predicate_count; p++) {
+                if (!has_state_ref_ge(comp->predicates[p], lts_type_get_state_length(GBgetLTStype(model))))
+                    set_pins_semantics(model, comp->predicates[p], env, NULL, NULL);
+            }
             companions[i].ba  = comp;
             companions[i].env = env;
             Print1(info, "LTLK: built companion BA for K-atom %d (%d states, %d preds)",
@@ -624,8 +834,7 @@ init_ltlk_buchi_real(model_t model, ltsmin_expr_t ltlk_expr, ltsmin_parse_env_t 
 
     if (NULL == shared_ba_ltlk && cas(&grab_ba_ltlk, 0, 1)) {
         ltsmin_expr_t neg = LTSminExpr(UNARY_OP, LTLK_NOT, 0, ltlk_expr, NULL);
-        ltsmin_ltl2ba(neg);
-        ba = ltsmin_buchi();
+        ba = ltlk_expr_to_buchi(neg, env);
 
         if (ba == NULL) {
             Print(info, "LTLK: empty Buchi automaton.");
@@ -636,8 +845,11 @@ init_ltlk_buchi_real(model_t model, ltsmin_expr_t ltlk_expr, ltsmin_parse_env_t 
             Abort("More than 30 predicates in LTLK Buchi automaton (unsupported)");
 
         ba->env = env;
-        for (int i = 0; i < ba->predicate_count; i++)
-            set_pins_semantics(model, ba->predicates[i], env, NULL, NULL);
+        int base_len = lts_type_get_state_length(GBgetLTStype(model));
+        for (int i = 0; i < ba->predicate_count; i++) {
+            if (!has_state_ref_ge(ba->predicates[i], base_len))
+                set_pins_semantics(model, ba->predicates[i], env, NULL, NULL);
+        }
 
         atomic_write(&shared_ba_ltlk, ba);
         HREbarrier(HREglobal());
@@ -691,6 +903,9 @@ resolve_agent(ltlk_context_t *ctx, ltsmin_expr_t expr)
 static int eval_ltlk_expr(ltlk_context_t *ctx, ltsmin_expr_t expr,
                           const int *model_state, const int *knowledge_ids);
 
+static int eval_local_expr(ltlk_context_t *ctx, ltsmin_expr_t expr,
+                           const int *model_state, const int *knowledge_ids, int *ok);
+
 typedef struct k_eval_ctx {
     ltlk_context_t *ctx;
     ltsmin_expr_t   phi;
@@ -711,6 +926,10 @@ eval_ltlk_expr(ltlk_context_t *ctx, ltsmin_expr_t expr,
     if (expr == NULL) return 1;
 
     switch (expr->node_type) {
+    case SVAR:
+        if (expr->idx >= ctx->old_len)
+            return model_state[expr->idx] != 0;
+        break;
     case UNARY_OP:
         switch (expr->token) {
         case LTLK_KNOWS: {
@@ -737,6 +956,9 @@ eval_ltlk_expr(ltlk_context_t *ctx, ltsmin_expr_t expr,
         case LTLK_GLOBALLY:
         case LTLK_FUTURE:
         case LTLK_NEXT:
+        case LTLK_PREVIOUS:
+        case LTLK_ONCE:
+        case LTLK_HISTORICALLY:
             return 1;
         default:
             break;
@@ -760,6 +982,7 @@ eval_ltlk_expr(ltlk_context_t *ctx, ltsmin_expr_t expr,
         case LTLK_RELEASE:
         case LTLK_WEAK_UNTIL:
         case LTLK_STRONG_RELEASE:
+        case LTLK_SINCE:
             return 1;
         default:
             break;
@@ -769,7 +992,77 @@ eval_ltlk_expr(ltlk_context_t *ctx, ltsmin_expr_t expr,
         break;
     }
 
+    if (has_state_ref_ge(expr, ctx->old_len)) {
+        int ok = 1;
+        int v = eval_local_expr(ctx, expr, model_state, knowledge_ids, &ok);
+        if (ok) return v;
+    }
+
     return (int)eval_trans_predicate(ctx->parent, expr, (int *)model_state, NULL, ctx->env);
+}
+
+static int
+eval_local_expr(ltlk_context_t *ctx, ltsmin_expr_t expr,
+                const int *model_state, const int *knowledge_ids, int *ok)
+{
+    (void)knowledge_ids;
+    if (expr == NULL) {
+        *ok = 0;
+        return 0;
+    }
+
+    switch (expr->node_type) {
+    case SVAR:
+        if (expr->idx < ctx->old_len) return model_state[expr->idx];
+        if (expr->idx < ctx->model_ext_len) return model_state[expr->idx];
+        *ok = 0;
+        return 0;
+    case CHUNK:
+    case INT:
+        return expr->idx;
+    case CONSTANT:
+        if (expr->token == LTLK_TRUE || expr->token == PRED_TRUE) return 1;
+        if (expr->token == LTLK_FALSE || expr->token == PRED_FALSE) return 0;
+        *ok = 0;
+        return 0;
+    case UNARY_OP: {
+        if (expr->token == LTLK_NOT || expr->token == PRED_NOT) {
+            int a = eval_local_expr(ctx, expr->arg1, model_state, knowledge_ids, ok);
+            return !a;
+        }
+        *ok = 0;
+        return 0;
+    }
+    case BINARY_OP: {
+        int a = eval_local_expr(ctx, expr->arg1, model_state, knowledge_ids, ok);
+        if (!*ok) return 0;
+        int b = eval_local_expr(ctx, expr->arg2, model_state, knowledge_ids, ok);
+        if (!*ok) return 0;
+        switch (expr->token) {
+        case LTLK_AND:   return a && b;
+        case LTLK_OR:    return a || b;
+        case LTLK_IMPLY: return (!a) || b;
+        case LTLK_EQUIV: return a == b;
+        case LTLK_EQ:    return a == b;
+        case LTLK_NEQ:   return a != b;
+        case LTLK_LT:    return a < b;
+        case LTLK_LEQ:   return a <= b;
+        case LTLK_GT:    return a > b;
+        case LTLK_GEQ:   return a >= b;
+        case LTLK_ADD:   return a + b;
+        case LTLK_SUB:   return a - b;
+        case LTLK_MULT:  return a * b;
+        case LTLK_DIV:   return b == 0 ? 0 : (a / b);
+        case LTLK_REM:   return b == 0 ? 0 : (a % b);
+        default:
+            *ok = 0;
+            return 0;
+        }
+    }
+    default:
+        *ok = 0;
+        return 0;
+    }
 }
 
 static inline int
@@ -788,6 +1081,86 @@ eval_predicates(ltlk_cb_context_t *infoctx)
     return pred_evals;
 }
 
+static int
+eval_rewritten_now(ltlk_context_t *ctx, ltsmin_expr_t expr,
+                   const int *model_ext_state, const int *knowledge_ids)
+{
+    int ok = 1;
+    int v = eval_local_expr(ctx, expr, model_ext_state, knowledge_ids, &ok);
+    if (ok) return v;
+    return eval_ltlk_expr(ctx, expr, model_ext_state, knowledge_ids);
+}
+
+static void
+initialize_past_slots(ltlk_context_t *ctx, int *init_model_ext, const int *knowledge_ids)
+{
+    for (int i = 0; i < ctx->past_count; i++) {
+        past_slot_t *slot = &ctx->past_slots[i];
+        int v = 0;
+        switch (slot->token) {
+        case LTLK_PREVIOUS:
+            v = 0;
+            break;
+        case LTLK_ONCE:
+            v = eval_rewritten_now(ctx, slot->arg1_rewritten, init_model_ext, knowledge_ids);
+            break;
+        case LTLK_HISTORICALLY:
+            v = eval_rewritten_now(ctx, slot->arg1_rewritten, init_model_ext, knowledge_ids);
+            break;
+        case LTLK_SINCE:
+            v = eval_rewritten_now(ctx, slot->arg2_rewritten, init_model_ext, knowledge_ids);
+            break;
+        default:
+            Abort("Unsupported past token in initialization: %d", slot->token);
+        }
+        init_model_ext[slot->state_idx] = v ? 1 : 0;
+    }
+}
+
+static void
+update_past_slots(ltlk_context_t *ctx,
+                  const int *src_model_ext,
+                  const int *dst_model_only,
+                  int *dst_model_ext,
+                  const int *src_knowledge_ids,
+                  const int *dst_knowledge_ids)
+{
+    for (int i = 0; i < ctx->past_count; i++) {
+        past_slot_t *slot = &ctx->past_slots[i];
+        int prev_self = src_model_ext[slot->state_idx] ? 1 : 0;
+        int v = 0;
+
+        switch (slot->token) {
+        case LTLK_PREVIOUS: {
+            v = eval_rewritten_now(ctx, slot->arg1_rewritten, src_model_ext, src_knowledge_ids);
+            break;
+        }
+        case LTLK_ONCE: {
+            int now = eval_rewritten_now(ctx, slot->arg1_rewritten, dst_model_ext, dst_knowledge_ids);
+            v = now || prev_self;
+            break;
+        }
+        case LTLK_HISTORICALLY: {
+            int now = eval_rewritten_now(ctx, slot->arg1_rewritten, dst_model_ext, dst_knowledge_ids);
+            v = now && prev_self;
+            break;
+        }
+        case LTLK_SINCE: {
+            int left_now  = eval_rewritten_now(ctx, slot->arg1_rewritten, dst_model_ext, dst_knowledge_ids);
+            int right_now = eval_rewritten_now(ctx, slot->arg2_rewritten, dst_model_ext, dst_knowledge_ids);
+            v = right_now || (left_now && prev_self);
+            break;
+        }
+        default:
+            Abort("Unsupported past token in transition update: %d", slot->token);
+        }
+
+        dst_model_ext[slot->state_idx] = v ? 1 : 0;
+    }
+
+    (void)dst_model_only;
+}
+
 static void
 ltlk_spin_cb(void *context, transition_info_t *ti, int *dst, int *cpy)
 {
@@ -796,13 +1169,22 @@ ltlk_spin_cb(void *context, transition_info_t *ti, int *dst, int *cpy)
 
     int dst_new[ctx->len];
     memcpy(dst_new + 1, dst, sizeof(int) * ctx->old_len);
+    if (ctx->model_ext_len > ctx->old_len) {
+        memset(dst_new + 1 + ctx->old_len, 0,
+               sizeof(int) * (ctx->model_ext_len - ctx->old_len));
+    }
 
     const int *src_knowledge = infoctx->src + ctx->know_idx;
     int *dst_knowledge = dst_new + ctx->know_idx;
+    const int *src_model_ext = infoctx->src + 1;
+    int *dst_model_ext = dst_new + 1;
+
+    update_past_slots(ctx, src_model_ext, dst, dst_model_ext, src_knowledge, dst_knowledge);
+
     const int *obs_labels = (ti != NULL) ? ti->labels : NULL;
     for (int a = 0; a < ctx->num_agents; a++) {
         dst_knowledge[a] = knowledge_update_belief(ctx->knowledge, a,
-                                                   src_knowledge[a], dst,
+                                                   src_knowledge[a], dst_model_ext,
                                                    obs_labels);
     }
 
@@ -879,9 +1261,18 @@ ltlk_spin_all(model_t self, int *src, TransitionCB cb, void *user_context)
 static void
 init_observability(ltlk_context_t *ctx)
 {
+    int ext_len = ctx->model_ext_len > 0 ? ctx->model_ext_len : ctx->old_len;
+
     if (ltlk_obs != NULL) {
         ctx->num_agents = ltlk_obs->num_agents;
-        ctx->observable_vars = ltlk_obs->observable_vars;
+        ctx->observable_vars = RTmalloc(sizeof(bitvector_t) * ctx->num_agents);
+        for (int a = 0; a < ctx->num_agents; a++) {
+            bitvector_create(&ctx->observable_vars[a], ext_len);
+            for (int i = 0; i < ctx->old_len; i++) {
+                if (bitvector_is_set(&ltlk_obs->observable_vars[a], i))
+                    bitvector_set(&ctx->observable_vars[a], i);
+            }
+        }
         if (ltlk_obs->observable_labels != NULL) {
             ctx->observable_labels = ltlk_obs->observable_labels;
         } else {
@@ -900,7 +1291,7 @@ init_observability(ltlk_context_t *ctx)
     ctx->observable_labels = RTmalloc(sizeof(bitvector_t) * ctx->num_agents);
 
     for (int a = 0; a < ctx->num_agents; a++) {
-        bitvector_create(&ctx->observable_vars[a], ctx->old_len);
+        bitvector_create(&ctx->observable_vars[a], ext_len);
         bitvector_create(&ctx->observable_labels[a], ctx->old_edge_labels);
         for (int i = 0; i < ctx->old_len; i++)
             bitvector_set(&ctx->observable_vars[a], i);
@@ -931,18 +1322,22 @@ GBaddLTLK(model_t model)
 
     ltlk_context_t *ctx = RTmallocZero(sizeof(*ctx));
     ctx->parent = model;
+    ctx->original_expr = ltlk_expr;
     ctx->ltlk_expr = ltlk_expr;
     ctx->env = env;
     ctx->old_len = lts_type_get_state_length(ltstype);
+    ctx->model_ext_len = ctx->old_len;
     ctx->old_edge_labels = lts_type_get_edge_label_count(ltstype);
     ctx->ltl_idx = 0;
 
-    set_pins_semantics(model, ltlk_expr, env, NULL, NULL);
+    prepare_past_elimination(ctx, env, ctx->old_len);
+
+    set_pins_semantics(model, ctx->original_expr, env, NULL, NULL);
     ctx->k_base_idx = SIlookup(env->unary_ops, "K0");
 
     init_observability(ctx);
 
-    ctx->ba = init_ltlk_buchi(model, ltlk_expr, env);
+    ctx->ba = init_ltlk_buchi(model, ctx->ltlk_expr, env);
 
     /* Build companion automata for every K_i(phi_j) predicate in the outer
      * Büchi automaton.  This MUST happen after init_ltlk_buchi() so that
@@ -954,9 +1349,10 @@ GBaddLTLK(model_t model)
 
     ctx->is_weak = is_weak_buchi(ctx->ba);
 
-    int new_len = 1 + ctx->old_len + ctx->num_agents;
+    int new_len = 1 + ctx->model_ext_len + ctx->num_agents;
     ctx->len = new_len;
-    ctx->know_idx = 1 + ctx->old_len;
+    ctx->past_idx = 1 + ctx->old_len;
+    ctx->know_idx = 1 + ctx->model_ext_len;
 
     int old_accept = pins_get_accepting_state_label_index(model);
     if (old_accept != -1) {
@@ -974,6 +1370,9 @@ GBaddLTLK(model_t model)
     int belief_type = lts_type_add_type(ltstype_new, "ltlk_belief", NULL);
     lts_type_set_format(ltstype_new, belief_type, LTStypeDirect);
 
+    int past_type = lts_type_add_type(ltstype_new, "ltlk_past", NULL);
+    lts_type_set_format(ltstype_new, past_type, LTStypeBool);
+
     lts_type_set_state_name(ltstype_new, ctx->ltl_idx, "ltlk");
     lts_type_set_state_typeno(ltstype_new, ctx->ltl_idx, buchi_type);
 
@@ -982,6 +1381,20 @@ GBaddLTLK(model_t model)
                                 lts_type_get_state_name(ltstype, i));
         lts_type_set_state_type(ltstype_new, i + 1,
                                 lts_type_get_state_type(ltstype, i));
+    }
+
+    for (int i = ctx->old_len; i < ctx->model_ext_len; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "__aux_%d", i - ctx->old_len);
+        lts_type_set_state_name(ltstype_new, 1 + i, name);
+        lts_type_set_state_typeno(ltstype_new, 1 + i, past_type);
+    }
+
+    for (int i = 0; i < ctx->past_count; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "__past_%d", i);
+        lts_type_set_state_name(ltstype_new, 1 + ctx->past_slots[i].state_idx, name);
+        lts_type_set_state_typeno(ltstype_new, 1 + ctx->past_slots[i].state_idx, past_type);
     }
 
     for (int a = 0; a < ctx->num_agents; a++) {
@@ -1019,6 +1432,7 @@ GBaddLTLK(model_t model)
         lts_type_set_state_label_typeno(ltstype_new, ctx->sl_idx_nonaccept, bool_type);
     }
 
+
     matrix_t *p_dm = GBgetDMInfo(model);
     matrix_t *p_dm_r = GBgetDMInfoRead(model);
     matrix_t *p_dm_w = GBgetDMInfoMayWrite(model);
@@ -1030,8 +1444,8 @@ GBaddLTLK(model_t model)
 
     bitvector_t fsd;
     bitvector_create(&fsd, ctx->old_len);
-    for (int i = 0; i < ctx->ba->predicate_count; i++)
-        set_pins_semantics(model, ctx->ba->predicates[i], env, &fsd, NULL);
+    for (int j = 0; j < ctx->old_len; j++)
+        bitvector_set(&fsd, j);
 
     if (has_epistemic(ltlk_expr)) {
         for (int i = 0; i < ctx->old_len; i++)
@@ -1044,6 +1458,7 @@ GBaddLTLK(model_t model)
     dm_create(new_dm, new_groups, new_len);
     dm_create(new_dm_r, new_groups, new_len);
     dm_create(new_dm_w, new_groups, new_len);
+
 
     for (int g = 0; g < groups; g++) {
         for (int i = 0; i < ctx->old_len; i++) {
@@ -1068,6 +1483,11 @@ GBaddLTLK(model_t model)
                 dm_set(new_dm_r, g, i + 1);
             }
         }
+        for (int i = ctx->old_len; i < ctx->model_ext_len; i++) {
+            dm_set(new_dm, g, i + 1);
+            dm_set(new_dm_r, g, i + 1);
+            dm_set(new_dm_w, g, i + 1);
+        }
     }
 
     for (int g = groups; g < new_groups; g++) {
@@ -1085,6 +1505,10 @@ GBaddLTLK(model_t model)
                 dm_set(new_dm, g, i + 1);
                 dm_set(new_dm_r, g, i + 1);
             }
+        }
+        for (int i = ctx->old_len; i < ctx->model_ext_len; i++) {
+            dm_set(new_dm, g, i + 1);
+            dm_set(new_dm_r, g, i + 1);
         }
     }
 
@@ -1104,6 +1528,8 @@ GBaddLTLK(model_t model)
     for (int i = 0; i < ctx->old_len; i++)
         if (bitvector_is_set(&fsd, i))
             dm_set(new_sl, ctx->sl_idx_accept, i + 1);
+    for (int i = ctx->old_len; i < ctx->model_ext_len; i++)
+        dm_set(new_sl, ctx->sl_idx_accept, i + 1);
 
     if (ctx->is_weak) {
         dm_set(new_sl, ctx->sl_idx_nonaccept, ctx->ltl_idx);
@@ -1113,9 +1539,12 @@ GBaddLTLK(model_t model)
         for (int i = 0; i < ctx->old_len; i++)
             if (bitvector_is_set(&fsd, i))
                 dm_set(new_sl, ctx->sl_idx_nonaccept, i + 1);
+        for (int i = ctx->old_len; i < ctx->model_ext_len; i++)
+            dm_set(new_sl, ctx->sl_idx_nonaccept, i + 1);
     }
 
     bitvector_clear(&fsd);
+
 
     model_t out = GBcreateBase();
     GBsetContext(out, ctx);
@@ -1145,22 +1574,30 @@ GBaddLTLK(model_t model)
 
     GBinitModelDefaults(&out, model);
 
+
     ctx->edge_labels = lts_type_get_edge_label_count(ltstype_new);
     ctx->edge_labels_buf = RTmalloc(sizeof(int) * ctx->edge_labels);
 
-    ctx->knowledge = knowledge_create(model, ctx->old_len, ctx->old_edge_labels,
+    ctx->knowledge = knowledge_create(model, ctx->model_ext_len, ctx->old_edge_labels,
                                       ctx->num_agents,
                                       ctx->observable_vars,
                                       ctx->observable_labels,
                                       ctx->k_atoms_count, ctx->k_atoms);
 
+
     int init[new_len];
     GBgetInitialState(model, init + 1);
+    if (ctx->model_ext_len > ctx->old_len) {
+        memset(init + 1 + ctx->old_len, 0,
+               sizeof(int) * (ctx->model_ext_len - ctx->old_len));
+    }
     init[ctx->ltl_idx] = 0;
 
     int init_bid = knowledge_make_initial_belief(ctx->knowledge, init + 1);
     for (int a = 0; a < ctx->num_agents; a++)
         init[ctx->know_idx + a] = init_bid;
+
+    initialize_past_slots(ctx, init + 1, init + ctx->know_idx);
 
     GBsetInitialState(out, init);
 

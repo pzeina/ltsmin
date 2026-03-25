@@ -59,6 +59,10 @@ LTL_NAME(LTL ltl)
     case LTL_STRONG_RELEASE:    Abort ("Strong release isn't implemented!");
     case LTL_NEXT:              return "X";
     case LTL_UNTIL:             return "U";
+    case LTL_PREVIOUS:          return "Y";
+    case LTL_ONCE:              return "O";
+    case LTL_HISTORICALLY:      return "H";
+    case LTL_SINCE:             return "S";
     default:                    return PRED_NAME((Pred)ltl);
     }
 }
@@ -74,6 +78,10 @@ LTLK_NAME(LTLK ltlk)
     case LTLK_STRONG_RELEASE:    Abort ("Strong release isn't implemented!");
     case LTLK_NEXT:              return "X";
     case LTLK_UNTIL:             return "U";
+    case LTLK_PREVIOUS:          return "Y";
+    case LTLK_ONCE:              return "O";
+    case LTLK_HISTORICALLY:      return "H";
+    case LTLK_SINCE:             return "S";
     case LTLK_KNOWS:             return "K";
     case LTLK_COMMON_KNOWS:      return "C";
     case LTLK_DISTRIBUTED_KNOWS: return "D";
@@ -235,6 +243,9 @@ create_ltl_env(ltsmin_parse_env_t env)
     LTSminPrefixOperator(env, LTL_GLOBALLY,     LTL_NAME(LTL_GLOBALLY), 6);
     LTSminPrefixOperator(env, LTL_FUTURE,       LTL_NAME(LTL_FUTURE), 6);
     LTSminPrefixOperator(env, LTL_NEXT,         LTL_NAME(LTL_NEXT), 6);
+    LTSminPrefixOperator(env, LTL_PREVIOUS,     LTL_NAME(LTL_PREVIOUS), 6);
+    LTSminPrefixOperator(env, LTL_ONCE,         LTL_NAME(LTL_ONCE), 6);
+    LTSminPrefixOperator(env, LTL_HISTORICALLY, LTL_NAME(LTL_HISTORICALLY), 6);
 
     LTSminBinaryOperator(env, LTL_AND,          LTL_NAME(LTL_AND), 7);
     LTSminBinaryOperator(env, LTL_OR,           LTL_NAME(LTL_OR), 8);
@@ -245,6 +256,7 @@ create_ltl_env(ltsmin_parse_env_t env)
     LTSminBinaryOperator(env, LTL_UNTIL,        LTL_NAME(LTL_UNTIL), 11);
     LTSminBinaryOperator(env, LTL_WEAK_UNTIL,   LTL_NAME(LTL_WEAK_UNTIL), 11); // translated to U \/ []
     LTSminBinaryOperator(env, LTL_RELEASE,      LTL_NAME(LTL_RELEASE), 11);
+    LTSminBinaryOperator(env, LTL_SINCE,        LTL_NAME(LTL_SINCE), 11);
 }
 
 /* Convert weak untils to until or generally */
@@ -344,6 +356,9 @@ create_ltlk_env(ltsmin_parse_env_t env)
     LTSminPrefixOperator(env, LTLK_GLOBALLY,     LTLK_NAME(LTLK_GLOBALLY), 6);
     LTSminPrefixOperator(env, LTLK_FUTURE,       LTLK_NAME(LTLK_FUTURE), 6);
     LTSminPrefixOperator(env, LTLK_NEXT,         LTLK_NAME(LTLK_NEXT), 6);
+    LTSminPrefixOperator(env, LTLK_PREVIOUS,     LTLK_NAME(LTLK_PREVIOUS), 6);
+    LTSminPrefixOperator(env, LTLK_ONCE,         LTLK_NAME(LTLK_ONCE), 6);
+    LTSminPrefixOperator(env, LTLK_HISTORICALLY, LTLK_NAME(LTLK_HISTORICALLY), 6);
     
     /* Epistemic operators.
      * K is a generic alias for K0 (single-agent / backward compat).
@@ -371,6 +386,7 @@ create_ltlk_env(ltsmin_parse_env_t env)
     LTSminBinaryOperator(env, LTLK_UNTIL,        LTLK_NAME(LTLK_UNTIL), 11);
     LTSminBinaryOperator(env, LTLK_WEAK_UNTIL,   LTLK_NAME(LTLK_WEAK_UNTIL), 11);
     LTSminBinaryOperator(env, LTLK_RELEASE,      LTLK_NAME(LTLK_RELEASE), 11);
+    LTSminBinaryOperator(env, LTLK_SINCE,        LTLK_NAME(LTLK_SINCE), 11);
 }
 
 /* Convert weak untils to until or globally for LTLK */

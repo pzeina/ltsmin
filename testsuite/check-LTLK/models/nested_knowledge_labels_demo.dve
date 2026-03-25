@@ -1,0 +1,40 @@
+// Nested-knowledge scenario with explicit transition tokens.
+// token=1 denotes r, token=2 denotes s, token=3 denotes explicit silence tau.
+
+byte h = 0;
+byte a_r = 0;
+byte token = 0;
+
+channel step;
+
+process Sys
+{
+  state q0, q1_h0, q1_h1, q2_h0, q2_h1, q3_h0, q3_h1;
+  init q0;
+  trans
+    // Choose h in {0,1} and emit token immediately (allows agent b to distinguish h immediately).
+    // Agent a still uses a_r=1 (same for both) so CANNOT distinguish h.
+    q0    -> q1_h0 { sync step!; effect h = 0, a_r = 1, token = 3; },
+    q0    -> q1_h1 { sync step!; effect h = 1, a_r = 1, token = 2; },
+
+    // Silent transitions after observation.
+    q1_h1 -> q2_h1 { sync step!; },
+    q1_h0 -> q2_h0 { sync step!; },
+
+    // Silent forever after step 2.
+    q2_h0 -> q3_h0 { guard true; sync step!; },
+    q2_h1 -> q3_h1 { guard true; sync step!; },
+    q3_h0 -> q3_h0 { guard true; sync step!; },
+    q3_h1 -> q3_h1 { guard true; sync step!; };
+}
+
+process Monitor
+{
+  state m;
+  init m;
+  accept m;
+  trans
+    m -> m { sync step?; };
+}
+
+system async property Monitor;

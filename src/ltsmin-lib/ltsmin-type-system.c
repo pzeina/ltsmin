@@ -229,12 +229,14 @@ check_type_format_LTL(const ltsmin_expr_t e, const ltsmin_parse_env_t env, const
     switch (e->token) {
         case LTL_AND: case LTL_OR: case LTL_EQUIV: case LTL_IMPLY:
         case LTL_RELEASE: case LTL_WEAK_UNTIL:
-        case LTL_STRONG_RELEASE: case LTL_UNTIL: {
+        case LTL_STRONG_RELEASE: case LTL_UNTIL:
+        case LTL_SINCE: {
             data_format_t l = check_type_format_LTL(e->arg1, env, lts_type);
             data_format_t r = check_type_format_LTL(e->arg2, env, lts_type);
             return get_data_format_binary(BOOL_OPS, e, env, l, r);
         }
-        case LTL_NOT: case LTL_FUTURE: case LTL_GLOBALLY: case LTL_NEXT: {
+        case LTL_NOT: case LTL_FUTURE: case LTL_GLOBALLY: case LTL_NEXT:
+        case LTL_PREVIOUS: case LTL_ONCE: case LTL_HISTORICALLY: {
             data_format_t c = check_type_format_LTL(e->arg1, env, lts_type);
             return get_data_format_unary(UNARY_BOOL_OPS, e, env, c);
         }
@@ -250,12 +252,14 @@ check_type_format_LTLK(const ltsmin_expr_t e, const ltsmin_parse_env_t env, cons
     switch (e->token) {
         case LTLK_AND: case LTLK_OR: case LTLK_EQUIV: case LTLK_IMPLY:
         case LTLK_RELEASE: case LTLK_WEAK_UNTIL:
-        case LTLK_STRONG_RELEASE: case LTLK_UNTIL: {
+        case LTLK_STRONG_RELEASE: case LTLK_UNTIL:
+        case LTLK_SINCE: {
             data_format_t l = check_type_format_LTLK(e->arg1, env, lts_type);
             data_format_t r = check_type_format_LTLK(e->arg2, env, lts_type);
             return get_data_format_binary(BOOL_OPS, e, env, l, r);
         }
         case LTLK_NOT: case LTLK_FUTURE: case LTLK_GLOBALLY: case LTLK_NEXT:
+        case LTLK_PREVIOUS: case LTLK_ONCE: case LTLK_HISTORICALLY:
         case LTLK_KNOWS: case LTLK_COMMON_KNOWS: 
         case LTLK_DISTRIBUTED_KNOWS: case LTLK_EVERYONE_KNOWS: {
             data_format_t c = check_type_format_LTLK(e->arg1, env, lts_type);

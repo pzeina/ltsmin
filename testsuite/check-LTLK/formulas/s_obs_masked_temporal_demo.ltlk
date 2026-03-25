@@ -1,0 +1,14 @@
+# Custom observability declaration demo:
+# - Agent 0 observes only Env
+# - Agent 1 observes only Agent
+# - labels() is included explicitly; for this DVE model no named edge labels are selected
+
+agents = 2;
+obs 0: vars(Env), labels();
+obs 1: vars(Agent), labels();
+
+# Representative formula containing both knowledge and temporal operators:
+#   - K0(<> false)  : temporal subformula inside K
+#   - <> (Env=="st_done"): temporal formula over a model variable
+# The conjunction is always false because K0(<> false) is always false.
+K0(<> false) && <> (Env=="st_done")

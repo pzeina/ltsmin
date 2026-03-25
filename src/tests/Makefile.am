@@ -183,3 +183,7 @@ if NEEDS_WINE
 	AM_TESTS_ENVIRONMENT = ./wine-wrapper.sh
 endif
 
+# Ensure test-dm can build its debug DM dependency even when invoked from src/tests.
+../dm/libdm_debug.la:
+	$(MAKE) -C ../dm libdm_debug.la
+

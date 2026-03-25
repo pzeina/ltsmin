@@ -1,0 +1,20 @@
+# Label sequence demo: transitions labeled by their effects (guard conditions)
+#
+# Sender executes labeled transitions that sequence symbols:
+#   s0 -[label='a'(effect symbol=0)]-> s1
+#   s1 -[label='b'(effect symbol=1)]-> s2
+#   s2 -[label='c'(effect symbol=2)]-> s0
+#
+# The observable sequence is encoded in Sender's state transitions and symbol effects.
+# Each transition implicitly represents a "letter" in an execution word: a, b, c, a, b, c, ...
+#
+# Both agents observe all variables (no label masking, which requires backend support)
+# but the concept shows how symbolic paths (different guards on transitions) create sequences
+
+agents = 2;
+obs 0: vars(Sender, Receiver);
+obs 1: vars(Sender, Receiver);
+
+# Agent 0 eventually knows Sender is at s1 (reached via 'a' label).
+# This demonstrates knowledge over labeled transition sequences.
+<> K0(Sender=="s1")

@@ -2,6 +2,8 @@
 
 // C++ libraries
 #include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -35,6 +37,108 @@ extern "C" {
 static ltsmin_expr_list_t *le_list = NULL;
 static ltsmin_lin_expr_t *le;
 
+static bool
+expr_has_past_operator(ltsmin_expr_t e)
+{
+  switch (e->token) {
+    case LTL_PREVIOUS:
+    case LTL_ONCE:
+    case LTL_HISTORICALLY:
+    case LTL_SINCE:
+      return true;
+    case LTL_NOT:
+    case LTL_NEXT:
+    case LTL_FUTURE:
+    case LTL_GLOBALLY:
+    case LTLK_KNOWS:
+      return expr_has_past_operator(e->arg1);
+    case LTL_AND:
+    case LTL_OR:
+    case LTL_IMPLY:
+    case LTL_EQUIV:
+    case LTL_UNTIL:
+    case LTL_RELEASE:
+      return expr_has_past_operator(e->arg1) || expr_has_past_operator(e->arg2);
+    default:
+      return false;
+  }
+}
+
+static std::string
+prefix_ap_name(ltsmin_expr_t e)
+{
+  char ap_name[32];
+  snprintf(ap_name, sizeof(ap_name), "p%08x", e->hash);
+  ltsmin_expr_lookup(e, ap_name, &le_list);
+  return std::string(ap_name);
+}
+
+static std::string
+ltl_to_store_prefix(ltsmin_expr_t e)
+{
+  switch (e->token) {
+    case LTL_TRUE:
+      return "t";
+    case LTL_FALSE:
+      return "f";
+
+    case LTL_NOT:
+      return std::string("!") + ltl_to_store_prefix(e->arg1);
+    case LTL_NEXT:
+      return std::string("X") + ltl_to_store_prefix(e->arg1);
+    case LTL_FUTURE:
+      return std::string("F") + ltl_to_store_prefix(e->arg1);
+    case LTL_GLOBALLY:
+      return std::string("G") + ltl_to_store_prefix(e->arg1);
+    case LTL_PREVIOUS:
+      return std::string("Y") + ltl_to_store_prefix(e->arg1);
+    case LTL_ONCE:
+      return std::string("O") + ltl_to_store_prefix(e->arg1);
+    case LTL_HISTORICALLY:
+      return std::string("H") + ltl_to_store_prefix(e->arg1);
+
+    case LTL_AND:
+      return std::string("&") + ltl_to_store_prefix(e->arg1) + ltl_to_store_prefix(e->arg2);
+    case LTL_OR:
+      return std::string("|") + ltl_to_store_prefix(e->arg1) + ltl_to_store_prefix(e->arg2);
+    case LTL_IMPLY:
+      return std::string("|!") + ltl_to_store_prefix(e->arg1) + ltl_to_store_prefix(e->arg2);
+    case LTL_EQUIV:
+      return std::string("&|!") + ltl_to_store_prefix(e->arg1) + ltl_to_store_prefix(e->arg2)
+           + std::string("|!") + ltl_to_store_prefix(e->arg2) + ltl_to_store_prefix(e->arg1);
+    case LTL_UNTIL:
+      return std::string("U") + ltl_to_store_prefix(e->arg1) + ltl_to_store_prefix(e->arg2);
+    case LTL_RELEASE:
+      return std::string("R") + ltl_to_store_prefix(e->arg1) + ltl_to_store_prefix(e->arg2);
+    case LTL_SINCE:
+      return std::string("S") + ltl_to_store_prefix(e->arg1) + ltl_to_store_prefix(e->arg2);
+
+    case PRED_NUM:
+    case PRED_CHUNK:
+    case PRED_EVAR:
+    case LTL_EN:
+    case LTL_EQ:
+    case LTL_SVAR:
+    case LTL_VAR:
+    case LTLK_KNOWS:
+    case LTL_NEQ:
+    case LTL_LT:
+    case LTL_LEQ:
+    case LTL_GT:
+    case LTL_GEQ:
+    case LTL_MULT:
+    case LTL_DIV:
+    case LTL_REM:
+    case LTL_ADD:
+    case LTL_SUB:
+      return prefix_ap_name(e);
+
+    default:
+      Abort("Unhandled token in Spot prefix serializer: %d", e->token);
+      return "f";
+  }
+}
+
 static int
 ltl_to_store_helper (char *at, ltsmin_lin_expr_t *le, ltsmin_parse_env_t env, int max_buffer)
 {
@@ -55,12 +159,17 @@ ltl_to_store_helper (char *at, ltsmin_lin_expr_t *le, ltsmin_parse_env_t env, in
       case LTL_UNTIL:     n += snprintf(at + (at?n:0), max_buffer, " U "); break;
       case LTL_RELEASE:   n += snprintf(at + (at?n:0), max_buffer, " R "); break;
       case LTL_NEXT:      n += snprintf(at + (at?n:0), max_buffer, " X "); break;
+      case LTL_PREVIOUS:  n += snprintf(at + (at?n:0), max_buffer, " Y "); break;
+      case LTL_ONCE:      n += snprintf(at + (at?n:0), max_buffer, " O "); break;
+      case LTL_HISTORICALLY: n += snprintf(at + (at?n:0), max_buffer, " H "); break;
+      case LTL_SINCE:     n += snprintf(at + (at?n:0), max_buffer, " S "); break;
       case LTL_EQUIV:     n += snprintf(at + (at?n:0), max_buffer, " <-> "); break;
       case LTL_IMPLY:     n += snprintf(at + (at?n:0), max_buffer, " -> "); break;
       case LTL_EN:
       case LTL_EQ:
       case LTL_SVAR:
       case LTL_VAR:
+      case LTLK_KNOWS:
       case LTL_NEQ:
       case LTL_LT:
       case LTL_LEQ:
@@ -71,18 +180,15 @@ ltl_to_store_helper (char *at, ltsmin_lin_expr_t *le, ltsmin_parse_env_t env, in
       case LTL_REM:
       case LTL_ADD:
       case LTL_SUB: {
-        char *buffer = LTSminPrintExpr(le->lin_expr[i], env);
-        // store the predicate (only once)
+        char ap_name[32];
+        snprintf(ap_name, sizeof(ap_name), "AP_%08x", le->lin_expr[i]->hash);
+
+        /* Store a stable AP->expression mapping for lookup after Spot translation. */
         if (at) {
-        	// register a whitespace free version
-        	std::string str(buffer);
-        	str.erase(std::remove(str.begin(), str.end(), ' '), str.end());
-        	ltsmin_expr_lookup(le->lin_expr[i], str.c_str(), &le_list);
+            ltsmin_expr_lookup(le->lin_expr[i], ap_name, &le_list);
         }
 
-        // add temporary '#' to mark predicates for Spot
-        n += snprintf(at + (at?n:0), max_buffer, "#%s#", buffer);
-        RTfree(buffer);
+        n += snprintf(at + (at?n:0), max_buffer, "%s", ap_name);
         break;
       }
       default:
@@ -133,6 +239,13 @@ check_edgevar(ltsmin_expr_t e, ltsmin_parse_env_t env)
             return e->chunk_cache;
         }
         case PRED_NOT:
+        case LTL_NEXT:
+        case LTL_PREVIOUS:
+        case LTL_ONCE:
+        case LTL_HISTORICALLY:
+        case LTL_FUTURE:
+        case LTL_GLOBALLY:
+        case LTLK_KNOWS:
             return check_edgevar(e->arg1, env);
         case PRED_EQ:
         case PRED_EN:
@@ -149,7 +262,11 @@ check_edgevar(ltsmin_expr_t e, ltsmin_parse_env_t env)
         case PRED_DIV: 
         case PRED_REM: 
         case PRED_ADD: 
-        case PRED_SUB: {
+        case PRED_SUB:
+        case LTL_UNTIL:
+        case LTL_RELEASE:
+        case LTL_SINCE:
+        {
             return (check_edgevar(e->arg1, env) != -1) ? check_edgevar(e->arg1, env) : check_edgevar(e->arg2, env);
         }
         default:
@@ -329,6 +446,23 @@ create_ltsmin_buchi(spot::twa_graph_ptr& aut, ltsmin_parse_env_t env)
               bs->transitions[trans_index].neg[0]   = 0;
               } break;
             default:
+              if (std::isalnum(static_cast<unsigned char>(cond.at(c_i))) || cond.at(c_i) == '_') {
+                size_t start = c_i;
+                while (c_i < cond.length() &&
+                       (std::isalnum(static_cast<unsigned char>(cond.at(c_i))) || cond.at(c_i) == '_')) {
+                  c_i++;
+                }
+                std::string predicate = cond.substr(start, c_i - start);
+                int pred_index = get_predicate_index(pred_vec, predicate);
+                if (pred_index >= 0) {
+                  if (is_neg)
+                    bs->transitions[trans_index].neg[0] |= (1 << pred_index);
+                  else
+                    bs->transitions[trans_index].pos[0] |= (1 << pred_index);
+                  is_neg = false;
+                }
+                c_i--;
+              }
               break;
           }
         }
@@ -348,13 +482,23 @@ create_ltsmin_buchi(spot::twa_graph_ptr& aut, ltsmin_parse_env_t env)
 void 
 ltsmin_ltl2spot(ltsmin_expr_t e, int to_tgba, ltsmin_parse_env_t env) 
 {
-  // construct the LTL formula and store the predicates
-  char *buff = ltl_to_store(e, env);
-  std::string ltl = std::string(buff);
+  bool use_prefix = expr_has_past_operator(e);
+  std::string ltl;
 
-  // modify #(a1 == "S")#  to  "(a1 == 'S')"
-  replace( ltl.begin(), ltl.end(), '"', '\'');
-  replace( ltl.begin(), ltl.end(), '#', '\"');
+  // construct the LTL formula and store the predicates
+  char *buff = NULL;
+  if (use_prefix) {
+    ltl = ltl_to_store_prefix(e);
+    buff = (char*) RTmalloc(ltl.size() + 1);
+    memcpy(buff, ltl.c_str(), ltl.size() + 1);
+  } else {
+    buff = ltl_to_store(e, env);
+    ltl = std::string(buff);
+
+    // modify #(a1 == "S")#  to  "(a1 == 'S')"
+    replace( ltl.begin(), ltl.end(), '"', '\'');
+    replace( ltl.begin(), ltl.end(), '#', '\"');
+  }
 
   // output the LTL formula
   if (log_active(infoLong)) {
@@ -363,7 +507,7 @@ ltsmin_ltl2spot(ltsmin_expr_t e, int to_tgba, ltsmin_parse_env_t env)
   }
 
   // use Spot to parse the LTL and create an automata
-  spot::parsed_formula f = spot::parse_infix_psl(ltl);
+  spot::parsed_formula f = use_prefix ? spot::parse_prefix_ltl(ltl) : spot::parse_infix_psl(ltl);
   bool parse_errors = f.format_errors(std::cerr);
   HREassert(!parse_errors, "Parse errors found in conversion of LTL to Spot formula. LTL = %s", buff);
 
