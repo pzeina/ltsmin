@@ -52,8 +52,12 @@ void set_pins_semantics(model_t model, ltsmin_expr_t e, ltsmin_parse_env_t env, 
             break;
         }
         case EVAR: {
+            const ltsmin_expr_t other = LTSminExprSibling(e);
+            if (other == NULL) {
+                Abort("transition predicate is missing the value/state sibling expression");
+            }
             const int type = lts_type_get_edge_label_typeno(GBgetLTStype(model), e->idx);
-            const int value = LTSminExprSibling(e)->idx;
+            const int value = other->idx;
 
             chunk c;
             c.data = SIgetC(env->values, value, (int*) &c.len);
@@ -80,7 +84,9 @@ void set_pins_semantics(model_t model, ltsmin_expr_t e, ltsmin_parse_env_t env, 
         }
         case CHUNK: {
             const ltsmin_expr_t other = LTSminExprSibling(e);
-            HREassert(other != NULL);
+            if (other == NULL) {
+                Abort("chunk predicate is missing its paired state or edge expression");
+            }
             const int type = get_typeno(other, GBgetLTStype(model));
             chunk c;
             c.data = SIgetC(env->values, e->idx, (int*) &c.len);
@@ -173,10 +179,10 @@ eval_trans_predicate(model_t model, ltsmin_expr_t e, int *state, int* edge_label
             } else return -1;
         }
         case PRED_CHUNK: {
-#ifndef NDEBUG
             const ltsmin_expr_t other = LTSminExprSibling(e);
-            HREassert(other != NULL && (other->token == SVAR || other->token == EVAR));
-#endif
+            if (other == NULL || (other->token != SVAR && other->token != EVAR)) {
+                Abort("chunk predicate is missing a paired state/edge expression");
+            }
             return e->chunk_cache;
         }
         case PRED_NOT:
