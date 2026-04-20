@@ -663,8 +663,14 @@ rewrite_past_to_history_vars(ltlk_context_t *ctx, ltsmin_expr_t e)
     }
 
     ltsmin_expr_t out = LTSminExpr(e->node_type, e->token, e->idx, NULL, NULL);
-    if (e->arg1) out->arg1 = rewrite_past_to_history_vars(ctx, e->arg1);
-    if (e->arg2) out->arg2 = rewrite_past_to_history_vars(ctx, e->arg2);
+    if (e->arg1) {
+        out->arg1 = rewrite_past_to_history_vars(ctx, e->arg1);
+        out->arg1->parent = out;
+    }
+    if (e->arg2) {
+        out->arg2 = rewrite_past_to_history_vars(ctx, e->arg2);
+        out->arg2->parent = out;
+    }
     LTSminExprRehash(out);
     return out;
 }

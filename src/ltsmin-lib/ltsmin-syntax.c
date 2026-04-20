@@ -472,7 +472,7 @@ void LTSminExprDestroy(ltsmin_expr_t expr, int recursive)
 
 ltsmin_expr_t LTSminExprSibling(ltsmin_expr_t e)
 {
-    HREassert(e->parent != NULL);
+    if (e == NULL || e->parent == NULL) return NULL;
             
     if (e->parent->arg1 == e) return e->parent->arg2;
     return e->parent->arg1;

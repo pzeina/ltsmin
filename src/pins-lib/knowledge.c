@@ -149,6 +149,12 @@ compute_ba_may_accept(struct ltsmin_buchi *ba)
         int c = comp[s];
         if (ba->states[s]->accept) comp_has_accept[c] = 1;
         ltsmin_buchi_state_t *bs = ba->states[s];
+        if (bs->transition_count == 0) {
+            /* Some companion BAs encode unconditional persistence via
+             * an explicit state with no outgoing edges. Treat this as an
+             * implicit self-loop for viability/SCC acceptance purposes. */
+            comp_has_cycle[c] = 1;
+        }
         for (int t = 0; t < bs->transition_count; t++) {
             int to = bs->transitions[t].to_state;
             if (to >= 0 && to < n && comp[to] == c) {
@@ -570,6 +576,14 @@ expand_initial_ba_states(init_belief_ctx_t *ctx, int *enriched, int k_idx)
     }
 
     ltsmin_buchi_state_t *bs = atom->ba->states[q0];
+    if (bs->transition_count == 0) {
+        int saved_q = enriched[km->model_len + k_idx];
+        enriched[km->model_len + k_idx] = q0;
+        expand_initial_ba_states(ctx, enriched, k_idx + 1);
+        enriched[km->model_len + k_idx] = saved_q;
+        return;
+    }
+
     bool any = false;
     for (int t = 0; t < bs->transition_count; t++) {
         ltsmin_buchi_transition_t *tr = &bs->transitions[t];
@@ -709,6 +723,14 @@ knowledge_make_initial_belief(knowledge_mgr_t *km, const int *model_state)
 
      /* Find all matching transitions from old_q. */
      ltsmin_buchi_state_t *bs = atom->ba->states[old_q];
+     if (bs->transition_count == 0) {
+         int saved_q = enriched[km->model_len + k_idx];
+         enriched[km->model_len + k_idx] = old_q;
+         expand_ba_states(ctx, enriched, k_idx + 1);
+         enriched[km->model_len + k_idx] = saved_q;
+         return;
+     }
+
      bool any = false;
      for (int t = 0; t < bs->transition_count; t++) {
          ltsmin_buchi_transition_t *tr = &bs->transitions[t];

@@ -27,6 +27,29 @@ c_combo_invalid_accepting|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas
 c_partial_obs_valid_no_cycle|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/c_partial_obs_valid_no_cycle.ltlk|0|Empty product with LTL!
 c_partial_obs_invalid_accepting|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/c_partial_obs_invalid_accepting.ltlk|1|Accepting cycle FOUND!
 
+# Epistemic axiom checks (all should hold: no accepting cycle)
+ax_veridicality|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/ax_veridicality.ltlk|0|Empty product with LTL!
+ax_positive_introspection|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/ax_positive_introspection.ltlk|0|Empty product with LTL!
+ax_negative_introspection|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/ax_negative_introspection.ltlk|0|Empty product with LTL!
+ax_non_forgetting|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/ax_non_forgetting.ltlk|0|Empty product with LTL!
+
+# Epistemic axiom coverage expansion (agents, observability, and systems)
+ax_v_simple_a0_obs|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/ax_v_simple_a0_obs.ltlk|0|Empty product with LTL!
+ax_v_anderson_a1_obs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/ax_v_anderson_a1_obs.ltlk|0|Empty product with LTL!
+ax_v_custom_a0_obs|testsuite/check-LTLK/models/custom_obs_demo.dve|testsuite/check-LTLK/formulas/ax_v_custom_a0_obs.ltlk|0|Empty product with LTL!
+
+ax_pi_simple_a1_obs|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/ax_pi_simple_a1_obs.ltlk|0|Empty product with LTL!
+ax_pi_anderson_a0_obs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/ax_pi_anderson_a0_obs.ltlk|0|Empty product with LTL!
+ax_pi_custom_a0_obs|testsuite/check-LTLK/models/custom_obs_demo.dve|testsuite/check-LTLK/formulas/ax_pi_custom_a0_obs.ltlk|0|Empty product with LTL!
+
+ax_ni_simple_a0_obs|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/ax_ni_simple_a0_obs.ltlk|0|Empty product with LTL!
+ax_ni_anderson_a1_obs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/ax_ni_anderson_a1_obs.ltlk|0|Empty product with LTL!
+ax_ni_custom_a1_obs|testsuite/check-LTLK/models/custom_obs_demo.dve|testsuite/check-LTLK/formulas/ax_ni_custom_a1_obs.ltlk|0|Empty product with LTL!
+
+ax_nf_simple_a1_obs|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/ax_nf_simple_a1_obs.ltlk|0|Empty product with LTL!
+ax_nf_anderson_a1_obs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/ax_nf_anderson_a1_obs.ltlk|0|Empty product with LTL!
+ax_nf_custom_a0_obs|testsuite/check-LTLK/models/custom_obs_demo.dve|testsuite/check-LTLK/formulas/ax_nf_custom_a0_obs.ltlk|0|Empty product with LTL!
+
 a_k_ncs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/a_k_ncs.ltlk|0|Empty product with LTL!
 a_k_eventually_cs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/a_k_eventually_cs.ltlk|0|Empty product with LTL!
 a_nested_k_cs|examples/anderson.1.prop4.dve|testsuite/check-LTLK/formulas/a_nested_k_cs.ltlk|1|Accepting cycle FOUND!

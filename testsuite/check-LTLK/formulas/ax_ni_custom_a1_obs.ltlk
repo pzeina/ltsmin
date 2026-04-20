@@ -1,0 +1,5 @@
+agents = 2;
+obs 0: vars(Env);
+obs 1: vars(Agent);
+
+(!K1(Agent=="seen")) -> K1(!K1(Agent=="seen"))

@@ -1,0 +1,5 @@
+agents = 2;
+obs 0: vars(P1);
+obs 1: vars(P2);
+
+K0(P1=="init_1") -> (P1=="init_1")
