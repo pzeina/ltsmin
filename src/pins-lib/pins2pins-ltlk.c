@@ -96,6 +96,7 @@ typedef struct ltlk_cb_context {
     int             ntbtrans;
     ltlk_context_t *ctx;
     int             predicate_evals;
+    int             group_filter;
 } ltlk_cb_context_t;
 
 static void
@@ -560,37 +561,6 @@ has_past_operator(ltsmin_expr_t e)
 }
 
 static bool
-is_future_operator_token(int token)
-{
-    return token == LTLK_NEXT ||
-           token == LTLK_FUTURE ||
-           token == LTLK_GLOBALLY ||
-           token == LTLK_UNTIL ||
-           token == LTLK_RELEASE ||
-           token == LTLK_WEAK_UNTIL ||
-           token == LTLK_STRONG_RELEASE;
-}
-
-static bool
-has_future_operator(ltsmin_expr_t e)
-{
-    if (e == NULL) return false;
-
-    switch (e->node_type) {
-    case UNARY_OP:
-        if (is_future_operator_token(e->token))
-            return true;
-        return has_future_operator(e->arg1);
-    case BINARY_OP:
-        if (is_future_operator_token(e->token))
-            return true;
-        return has_future_operator(e->arg1) || has_future_operator(e->arg2);
-    default:
-        return false;
-    }
-}
-
-static bool
 has_state_ref_ge(ltsmin_expr_t e, int threshold)
 {
     if (e == NULL) return false;
@@ -696,15 +666,9 @@ prepare_past_elimination(ltlk_context_t *ctx, ltsmin_parse_env_t env, int old_le
     for (int i = 0; i < ctx->past_count; i++) {
         past_slot_t *slot = &ctx->past_slots[i];
         if (slot->orig->arg1 != NULL) {
-            if (has_future_operator(slot->orig->arg1)) {
-                Abort("Past-operator argument with future operators is not supported yet in history elimination");
-            }
             slot->arg1_rewritten = rewrite_past_to_history_vars(ctx, slot->orig->arg1);
         }
         if (slot->orig->arg2 != NULL) {
-            if (has_future_operator(slot->orig->arg2)) {
-                Abort("Past-operator argument with future operators is not supported yet in history elimination");
-            }
             slot->arg2_rewritten = rewrite_past_to_history_vars(ctx, slot->orig->arg2);
         }
     }
@@ -1173,6 +1137,9 @@ ltlk_spin_cb(void *context, transition_info_t *ti, int *dst, int *cpy)
     ltlk_cb_context_t *infoctx = (ltlk_cb_context_t *)context;
     ltlk_context_t    *ctx = infoctx->ctx;
 
+    if (infoctx->group_filter >= 0 && ti != NULL && ti->group != infoctx->group_filter)
+        return;
+
     int dst_new[ctx->len];
     memcpy(dst_new + 1, dst, sizeof(int) * ctx->old_len);
     if (ctx->model_ext_len > ctx->old_len) {
@@ -1208,18 +1175,102 @@ ltlk_spin_cb(void *context, transition_info_t *ti, int *dst, int *cpy)
     }
 }
 
+static void
+ltlk_count_successors_cb(void *context, transition_info_t *ti, int *dst, int *cpy)
+{
+    int *count = (int *)context;
+    (void)ti;
+    (void)dst;
+    (void)cpy;
+    (*count)++;
+}
+
+static int
+ltlk_parent_has_successors(ltlk_context_t *ctx, const int *src)
+{
+    int count = 0;
+    GBgetTransitionsAll(ctx->parent, (int *)src + 1, ltlk_count_successors_cb, &count);
+    return count > 0;
+}
+
+static int
+ltlk_emit_buchi_group(ltlk_context_t *ctx, ltlk_cb_context_t *new_ctx, int group, int *src, TransitionCB cb, void *user_context)
+{
+    int ba_index = group - ctx->old_groups;
+    int buchi_src = src[ctx->ltl_idx];
+    HREassert(buchi_src < ctx->ba->state_count);
+
+    if (ltlk_parent_has_successors(ctx, src))
+        return 0;
+
+    memset(ctx->edge_labels_buf, 0, sizeof(int) * ctx->edge_labels);
+
+    int emitted = 0;
+    for (int j = 0; j < ctx->ba->states[buchi_src]->transition_count; j++) {
+        ltsmin_buchi_transition_t *tr = &ctx->ba->states[buchi_src]->transitions[j];
+        if (tr->index != ba_index)
+            continue;
+        if ((new_ctx->predicate_evals & tr->pos[0]) != tr->pos[0] ||
+            (new_ctx->predicate_evals & tr->neg[0]) != 0)
+            continue;
+
+        int dst_new[ctx->len];
+        memcpy(dst_new, src, sizeof(int) * ctx->len);
+        dst_new[ctx->ltl_idx] = tr->to_state;
+
+        transition_info_t ti = GB_TI(ctx->edge_labels_buf, group);
+        ti.por_proviso = 1;
+        cb(user_context, &ti, dst_new, NULL);
+        emitted++;
+    }
+
+    return emitted;
+}
+
 static int
 ltlk_spin_long(model_t self, int group, int *src, TransitionCB cb, void *user_context)
 {
-    (void)self; (void)group; (void)src; (void)cb; (void)user_context;
-    Abort("LTLK: --grey / -reach not supported by this layer");
+    ltlk_context_t *ctx = GBgetContext(self);
+    ltlk_cb_context_t new_ctx;
+
+    new_ctx.model = self;
+    new_ctx.cb = cb;
+    new_ctx.user_context = user_context;
+    new_ctx.src = src;
+    new_ctx.ntbtrans = 0;
+    new_ctx.ctx = ctx;
+    new_ctx.predicate_evals = eval_predicates(&new_ctx);
+    new_ctx.group_filter = group;
+
+    GBgetTransitionsAll(ctx->parent, src + 1, ltlk_spin_cb, &new_ctx);
+
+    if (group >= ctx->old_groups && new_ctx.ntbtrans == 0)
+        return ltlk_emit_buchi_group(ctx, &new_ctx, group, src, cb, user_context);
+
+    return new_ctx.ntbtrans;
 }
 
 static int
 ltlk_spin_short(model_t self, int group, int *src, TransitionCB cb, void *user_context)
 {
-    (void)self; (void)group; (void)src; (void)cb; (void)user_context;
-    Abort("LTLK: --cached not supported by this layer");
+    ltlk_context_t *ctx = GBgetContext(self);
+    ltlk_cb_context_t new_ctx;
+
+    new_ctx.model = self;
+    new_ctx.cb = cb;
+    new_ctx.user_context = user_context;
+    new_ctx.src = src;
+    new_ctx.ntbtrans = 0;
+    new_ctx.ctx = ctx;
+    new_ctx.predicate_evals = eval_predicates(&new_ctx);
+    new_ctx.group_filter = group;
+
+    GBgetTransitionsAll(ctx->parent, src + 1, ltlk_spin_cb, &new_ctx);
+
+    if (group >= ctx->old_groups && new_ctx.ntbtrans == 0)
+        return ltlk_emit_buchi_group(ctx, &new_ctx, group, src, cb, user_context);
+
+    return new_ctx.ntbtrans;
 }
 
 static int
@@ -1235,6 +1286,7 @@ ltlk_spin_all(model_t self, int *src, TransitionCB cb, void *user_context)
     new_ctx.ntbtrans = 0;
     new_ctx.ctx = ctx;
     new_ctx.predicate_evals = eval_predicates(&new_ctx);
+    new_ctx.group_filter = -1;
 
     GBgetTransitionsAll(ctx->parent, src + 1, ltlk_spin_cb, &new_ctx);
 

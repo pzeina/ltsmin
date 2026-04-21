@@ -14,6 +14,8 @@ s_nested_label_knowledge|testsuite/check-LTLK/models/nested_knowledge_labels_dem
 s_past_once_origin|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_past_once_origin.ltlk|1|Accepting cycle FOUND!
 s_past_nested_once_global|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_past_nested_once_global.ltlk|1|Accepting cycle FOUND!
 s_past_nested_since_global|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_past_nested_since_global.ltlk|1|Accepting cycle FOUND!
+s_mixed_past_future_once_eventually|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_mixed_past_future_once_eventually.ltlk|0|Empty product with LTL!
+s_mixed_past_future_k_once_eventually|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_mixed_past_future_k_once_eventually.ltlk|1|Accepting cycle FOUND!
 
 # Canonical paired examples (valid=no accepting cycle, invalid=accepting cycle)
 c_epistemic_valid_no_cycle|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/c_epistemic_valid_no_cycle.ltlk|0|Empty product with LTL!
