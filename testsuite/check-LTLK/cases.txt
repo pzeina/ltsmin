@@ -5,19 +5,19 @@ s_k_init|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_k_init.ltlk|0|
 s_k_eventually_done|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_k_eventually_done.ltlk|0|Empty product with LTL!
 s_k_always_wait|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_k_always_wait.ltlk|1|Accepting cycle FOUND!
 s_nested_k|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_nested_k.ltlk|1|Accepting cycle FOUND!
-s_nested_k_temporal|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_nested_k_temporal.ltlk|1|Accepting cycle FOUND!
+s_nested_k_temporal|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_nested_k_temporal.ltlk|0|Empty product with LTL!
 s_obs_subset_basic|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_obs_subset_basic.ltlk|1|Accepting cycle FOUND!
 s_obs_subset_nested|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_obs_subset_nested.ltlk|1|Accepting cycle FOUND!
 s_obs_masked_temporal_demo|testsuite/check-LTLK/models/custom_obs_demo.dve|testsuite/check-LTLK/formulas/s_obs_masked_temporal_demo.ltlk|1|Accepting cycle FOUND!
 s_labels_asymmetric_demo|testsuite/check-LTLK/models/label_seq_demo.dve|testsuite/check-LTLK/formulas/s_labels_asymmetric_demo.ltlk|1|Accepting cycle FOUND!
 s_nested_label_knowledge|testsuite/check-LTLK/models/nested_knowledge_labels_demo.dve|testsuite/check-LTLK/formulas/s_nested_label_knowledge.ltlk|1|Accepting cycle FOUND!
 s_past_once_origin|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_past_once_origin.ltlk|1|Accepting cycle FOUND!
-s_past_nested_once_global|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_past_nested_once_global.ltlk|1|Accepting cycle FOUND!
-s_past_nested_since_global|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_past_nested_since_global.ltlk|1|Accepting cycle FOUND!
+s_past_nested_once_global|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_past_nested_once_global.ltlk|0|Empty product with LTL!
+s_past_nested_since_global|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_past_nested_since_global.ltlk|0|Empty product with LTL!
 s_mixed_past_future_once_eventually|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_mixed_past_future_once_eventually.ltlk|0|Empty product with LTL!
 s_mixed_past_future_k_once_eventually|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/s_mixed_past_future_k_once_eventually.ltlk|1|Accepting cycle FOUND!
 
-# Canonical paired examples (valid=no accepting cycle, invalid=accepting cycle)
+# Canonical paired examples (expected outcomes listed per case; not all pairs are strict logical negations)
 c_epistemic_valid_no_cycle|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/c_epistemic_valid_no_cycle.ltlk|0|Empty product with LTL!
 c_epistemic_invalid_accepting|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/c_epistemic_invalid_accepting.ltlk|1|Accepting cycle FOUND!
 c_future_valid_no_cycle|examples/simple_ltlk.dve|testsuite/check-LTLK/formulas/c_future_valid_no_cycle.ltlk|0|Empty product with LTL!

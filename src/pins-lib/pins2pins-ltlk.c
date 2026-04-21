@@ -514,33 +514,6 @@ has_unsupported_epistemic(ltsmin_expr_t e)
 }
 
 static bool
-has_temporal_operator(ltsmin_expr_t e)
-{
-    if (e == NULL) return false;
-    switch (e->node_type) {
-    case UNARY_OP:
-        if (e->token == LTLK_GLOBALLY ||
-            e->token == LTLK_FUTURE   ||
-            e->token == LTLK_NEXT     ||
-            e->token == LTLK_PREVIOUS ||
-            e->token == LTLK_ONCE     ||
-            e->token == LTLK_HISTORICALLY)
-            return true;
-        return has_temporal_operator(e->arg1);
-    case BINARY_OP:
-        if (e->token == LTLK_UNTIL ||
-            e->token == LTLK_RELEASE ||
-            e->token == LTLK_WEAK_UNTIL ||
-            e->token == LTLK_STRONG_RELEASE ||
-            e->token == LTLK_SINCE)
-            return true;
-        return has_temporal_operator(e->arg1) || has_temporal_operator(e->arg2);
-    default:
-        return false;
-    }
-}
-
-static bool
 has_past_operator(ltsmin_expr_t e)
 {
     if (e == NULL) return false;
@@ -913,8 +886,6 @@ eval_ltlk_expr(ltlk_context_t *ctx, ltsmin_expr_t expr,
                 if (pred_idx >= 0) {
                     if (ctx->k_atoms[pred_idx].ba != NULL)
                         return knowledge_k_atom_holds(ctx->knowledge, bid, pred_idx);
-                    if (has_temporal_operator(expr->arg1))
-                        return 0;
                 }
             }
             /* Fallback: plain propositional phi – use classic forall check. */
